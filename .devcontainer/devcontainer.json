@@ -1,0 +1,16 @@
+{
+  "name": "Claude Code Sandbox",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bullseye",
+  "customizations": {
+    "vscode": {
+      "settings": {},
+      "extensions": []
+    }
+  },
+  // ADD THIS LINE BELOW to save your login info to a persistent volume
+  "mounts": [
+    "source=claude-config,target=/home/node/.config"
+  ],
+  "postCreateCommand": "npm install -g @anthropic-ai/claude-code",
+  "remoteUser": "node"
+}
