@@ -10,9 +10,9 @@ This package implements defense-in-depth against:
 
 __version__ = "0.1.0"
 
+from alphaforge.backtest.engine import BacktestEngine
 from alphaforge.data.loader import MarketDataLoader
 from alphaforge.strategy.genome import StrategyGenome
-from alphaforge.backtest.engine import BacktestEngine
 from alphaforge.validation.pipeline import ValidationPipeline
 
 __all__ = [

@@ -1,8 +1,8 @@
 """Tests for data loader."""
 
-import pytest
 from datetime import date
-from pathlib import Path
+
+import pytest
 
 from alphaforge.data.loader import MarketDataLoader
 from alphaforge.data.schema import OHLCVData

@@ -4,19 +4,16 @@ MLflow experiment tracking integration.
 Tracks all strategy evaluations for reproducibility and audit trails.
 """
 
-from dataclasses import asdict
-from datetime import datetime
-from pathlib import Path
-from typing import Optional, Any
 import json
 import logging
 import os
+from pathlib import Path
 
 import mlflow
 from mlflow.tracking import MlflowClient
 
-from alphaforge.strategy.genome import StrategyGenome
 from alphaforge.backtest.engine import BacktestResult
+from alphaforge.strategy.genome import StrategyGenome
 from alphaforge.validation.pipeline import ValidationResult
 
 logger = logging.getLogger(__name__)
@@ -39,7 +36,7 @@ class ExperimentTracker:
     def __init__(
         self,
         experiment_name: str = DEFAULT_EXPERIMENT,
-        tracking_uri: Optional[str] = None,
+        tracking_uri: str | None = None,
     ) -> None:
         """
         Initialize experiment tracker.
@@ -78,7 +75,7 @@ class ExperimentTracker:
         strategy: StrategyGenome,
         result: BacktestResult,
         data_symbol: str,
-        tags: Optional[dict[str, str]] = None,
+        tags: dict[str, str] | None = None,
     ) -> str:
         """
         Log a backtest run.
@@ -149,7 +146,7 @@ class ExperimentTracker:
     def log_validation(
         self,
         validation_result: ValidationResult,
-        tags: Optional[dict[str, str]] = None,
+        tags: dict[str, str] | None = None,
     ) -> str:
         """
         Log a full validation run.

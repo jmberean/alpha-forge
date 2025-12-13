@@ -5,12 +5,11 @@ Uses real market data from yfinance (cached for reproducibility).
 NO SYNTHETIC OR FAKE DATA.
 """
 
-import pytest
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
-import numpy as np
+import pytest
 
 
 @pytest.fixture(scope="session")

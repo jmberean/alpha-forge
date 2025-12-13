@@ -4,18 +4,18 @@ Vectorized backtesting engine.
 High-performance backtesting using numpy vectorization.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+
 import numpy as np
 import pandas as pd
 
+from alphaforge.backtest.metrics import PerformanceMetrics
+from alphaforge.backtest.portfolio import Portfolio, PositionSizer
 from alphaforge.data.schema import OHLCVData
 from alphaforge.features.technical import TechnicalIndicators
 from alphaforge.strategy.genome import StrategyGenome
-from alphaforge.strategy.signals import SignalGenerator, PositionTracker
-from alphaforge.backtest.metrics import PerformanceMetrics, calculate_sharpe
-from alphaforge.backtest.portfolio import Portfolio, PositionSizer
+from alphaforge.strategy.signals import PositionTracker, SignalGenerator
 
 
 @dataclass

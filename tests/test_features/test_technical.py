@@ -1,8 +1,6 @@
 """Tests for technical indicators."""
 
-import pytest
 import numpy as np
-import pandas as pd
 
 from alphaforge.features.technical import TechnicalIndicators
 

@@ -4,9 +4,9 @@ Portfolio simulation for backtesting.
 Tracks positions, cash, and portfolio value over time.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+
 import numpy as np
 import pandas as pd
 
@@ -113,7 +113,7 @@ class Portfolio:
         date: datetime,
         target_value: float,
         side: str = "long",
-    ) -> Optional[Position]:
+    ) -> Position | None:
         """
         Open a new position.
 
@@ -175,7 +175,7 @@ class Portfolio:
         symbol: str,
         price: float,
         date: datetime,
-    ) -> Optional[Trade]:
+    ) -> Trade | None:
         """
         Close an existing position.
 
@@ -238,7 +238,7 @@ class Portfolio:
         self,
         date: datetime,
         current_prices: dict[str, float],
-        prev_value: Optional[float] = None,
+        prev_value: float | None = None,
     ) -> PortfolioState:
         """
         Record current portfolio state.
@@ -338,7 +338,7 @@ class PositionSizer:
         self,
         portfolio_value: float,
         price: float,
-        volatility: Optional[float] = None,
+        volatility: float | None = None,
     ) -> float:
         """
         Calculate target position value.

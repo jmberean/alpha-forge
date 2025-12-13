@@ -7,9 +7,9 @@ This module provides:
 - SignalGenerator: Generate trading signals from strategies
 """
 
-from alphaforge.strategy.genome import StrategyGenome, Rule, Filter
-from alphaforge.strategy.templates import StrategyTemplates
+from alphaforge.strategy.genome import Filter, Rule, StrategyGenome
 from alphaforge.strategy.signals import SignalGenerator
+from alphaforge.strategy.templates import StrategyTemplates
 
 __all__ = [
     "StrategyGenome",

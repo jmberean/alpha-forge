@@ -11,13 +11,14 @@ By testing ALL C(N, K) combinations with purging, we get a robust
 estimate of out-of-sample performance.
 """
 
+import logging
+from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from itertools import combinations
-from typing import Optional, Callable
+
 import numpy as np
 import pandas as pd
-from concurrent.futures import ProcessPoolExecutor, as_completed
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ class CombinatorialPurgedCV:
         self,
         data: pd.DataFrame,
         backtest_fn: Callable[[pd.DataFrame, pd.DataFrame], float],
-        max_combinations: Optional[int] = None,
+        max_combinations: int | None = None,
         n_jobs: int = 1,
     ) -> CPCVResult:
         """
@@ -302,7 +303,7 @@ def combinatorial_purged_cv(
     n_splits: int = 16,
     test_splits: int = 8,
     embargo_pct: float = 0.02,
-    max_combinations: Optional[int] = None,
+    max_combinations: int | None = None,
 ) -> CPCVResult:
     """
     Convenience function for CPCV validation.

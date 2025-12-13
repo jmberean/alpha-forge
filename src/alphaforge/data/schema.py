@@ -10,10 +10,10 @@ This prevents lookahead bias at the data infrastructure level.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, date
-from typing import Optional
-import pandas as pd
+from datetime import date, datetime
+
 import numpy as np
+import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -33,7 +33,7 @@ class MarketData(BaseModel):
     low: float = Field(..., ge=0, description="Low price")
     close: float = Field(..., ge=0, description="Closing price")
     volume: int = Field(..., ge=0, description="Trading volume")
-    adjusted_close: Optional[float] = Field(None, ge=0, description="Adjusted close")
+    adjusted_close: float | None = Field(None, ge=0, description="Adjusted close")
 
     @field_validator("high")
     @classmethod
@@ -76,7 +76,7 @@ class BiTemporalRecord(BaseModel):
         default_factory=datetime.utcnow,
         description="When entered database",
     )
-    valid_to: Optional[datetime] = Field(
+    valid_to: datetime | None = Field(
         None,
         description="End of validity (NULL if current version)",
     )

@@ -4,7 +4,6 @@ Technical indicators with point-in-time guarantees.
 All indicators use TRAILING windows only (center=False) to prevent lookahead bias.
 """
 
-from typing import Optional
 import numpy as np
 import pandas as pd
 

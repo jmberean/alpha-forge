@@ -4,16 +4,15 @@ Signal generation from strategy specifications.
 Converts StrategyGenome rules into actual trading signals.
 """
 
-from typing import Optional
-import numpy as np
+
 import pandas as pd
 
 from alphaforge.strategy.genome import (
-    StrategyGenome,
+    LogicalOperator,
+    Operator,
     Rule,
     RuleGroup,
-    Operator,
-    LogicalOperator,
+    StrategyGenome,
 )
 
 
@@ -217,9 +216,9 @@ class PositionTracker:
 
     def __init__(
         self,
-        stop_loss_pct: Optional[float] = None,
-        take_profit_pct: Optional[float] = None,
-        max_holding_days: Optional[int] = None,
+        stop_loss_pct: float | None = None,
+        take_profit_pct: float | None = None,
+        max_holding_days: int | None = None,
     ) -> None:
         """
         Initialize position tracker.

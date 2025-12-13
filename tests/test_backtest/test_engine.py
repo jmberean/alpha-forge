@@ -1,6 +1,5 @@
 """Tests for backtest engine."""
 
-import pytest
 import numpy as np
 import pandas as pd
 

@@ -87,9 +87,9 @@ def data(symbol: str, start: str, end: str, no_cache: bool) -> None:
 @click.option("--output", "-o", default=None, help="Output file for results")
 def backtest(symbol: str, template: str, start: str, end: str, output: str) -> None:
     """Run a backtest on a symbol with a strategy template."""
+    from alphaforge.backtest.engine import BacktestEngine
     from alphaforge.data.loader import MarketDataLoader
     from alphaforge.strategy.templates import StrategyTemplates
-    from alphaforge.backtest.engine import BacktestEngine
 
     # Load data
     loader = MarketDataLoader()
@@ -142,6 +142,10 @@ def backtest(symbol: str, template: str, start: str, end: str, output: str) -> N
 @click.option("--end", "-e", default=None, help="End date")
 @click.option("--n-trials", "-n", default=1, help="Number of strategies tested (for DSR)")
 @click.option("--run-cpcv/--no-cpcv", default=False, help="Run CPCV validation")
+@click.option("--run-spa", is_flag=True, help="Run Hansen's SPA test vs benchmark")
+@click.option("--benchmark", "-b", default="SPY", help="Benchmark symbol for SPA test (default: SPY)")
+@click.option("--run-stress", is_flag=True, help="Run stress testing")
+@click.option("--stress-scenarios", default=None, help="Comma-separated stress scenarios (default: all)")
 @click.option("--output", "-o", default=None, help="Output file for results")
 def validate(
     symbol: str,
@@ -150,6 +154,10 @@ def validate(
     end: str,
     n_trials: int,
     run_cpcv: bool,
+    run_spa: bool,
+    benchmark: str,
+    run_stress: bool,
+    stress_scenarios: str,
     output: str,
 ) -> None:
     """Validate a strategy with full statistical tests."""
@@ -173,6 +181,13 @@ def validate(
     click.echo(f"Loading {symbol}...")
     data = loader.load(symbol, start_date, end_date)
 
+    # Load benchmark if SPA requested
+    benchmark_returns = None
+    if run_spa:
+        click.echo(f"Loading benchmark {benchmark}...")
+        benchmark_data = loader.load(benchmark, start_date, end_date)
+        benchmark_returns = benchmark_data.df['close'].pct_change().dropna()
+
     # Get strategy
     try:
         strategy = StrategyTemplates.get_template(template)
@@ -183,10 +198,28 @@ def validate(
     click.echo(f"Validating: {strategy.name}")
     click.echo(f"  n_trials: {n_trials}")
     click.echo(f"  CPCV: {'enabled' if run_cpcv else 'disabled'}")
+    if run_spa:
+        click.echo(f"  SPA test: enabled (vs {benchmark})")
+
+    scenarios_list = None
+    if run_stress:
+        scenarios_list = stress_scenarios.split(',') if stress_scenarios else None
+        scenario_desc = stress_scenarios if stress_scenarios else "all"
+        click.echo(f"  Stress testing: enabled ({scenario_desc})")
 
     # Run validation
     pipeline = ValidationPipeline()
-    result = pipeline.validate(strategy, data, n_trials=n_trials, run_cpcv=run_cpcv)
+    result = pipeline.validate(
+        strategy,
+        data,
+        n_trials=n_trials,
+        run_cpcv=run_cpcv,
+        run_spa=run_spa,
+        run_stress=run_stress,
+        benchmark_returns=benchmark_returns,
+        benchmark_name=benchmark,
+        stress_scenarios=scenarios_list,
+    )
 
     # Display results
     click.echo("\n" + result.summary())

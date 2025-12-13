@@ -8,12 +8,11 @@ PBO measures the likelihood that a strategy selected via optimization
 will underperform out-of-sample.
 """
 
-from dataclasses import dataclass
-from typing import Optional, Callable
-import numpy as np
-import pandas as pd
-from scipy import stats
 import logging
+from dataclasses import dataclass
+
+import numpy as np
+from scipy import stats
 
 logger = logging.getLogger(__name__)
 

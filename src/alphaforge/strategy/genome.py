@@ -7,13 +7,13 @@ All strategies are serialized to a standard format for:
 - Reproducibility and audit trails
 """
 
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-from enum import Enum
-from typing import Optional, Any
+import hashlib
 import json
 import uuid
-import hashlib
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
 
 
 class Operator(str, Enum):
@@ -180,8 +180,8 @@ class StrategyGenome:
     exit_rules: RuleGroup = field(default_factory=lambda: RuleGroup(rules=[]))
 
     # Filters
-    universe_filter: Optional[Filter] = None
-    regime_filter: Optional[Filter] = None
+    universe_filter: Filter | None = None
+    regime_filter: Filter | None = None
 
     # Position sizing
     sizing_method: PositionSizing = PositionSizing.FIXED
@@ -189,9 +189,9 @@ class StrategyGenome:
     target_volatility: float = 0.10  # For volatility sizing
 
     # Risk management
-    stop_loss_pct: Optional[float] = None  # e.g., 0.02 for 2%
-    take_profit_pct: Optional[float] = None
-    max_holding_days: Optional[int] = None
+    stop_loss_pct: float | None = None  # e.g., 0.02 for 2%
+    take_profit_pct: float | None = None
+    max_holding_days: int | None = None
 
     # Execution
     order_type: OrderType = OrderType.MARKET
@@ -200,7 +200,7 @@ class StrategyGenome:
     # Metadata
     description: str = ""
     author: str = ""
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None).isoformat())
     tags: list[str] = field(default_factory=list)
 
     # Parameters (for optimization)
@@ -264,7 +264,7 @@ class StrategyGenome:
             urgency=Urgency(data.get("urgency", "neutral")),
             description=data.get("description", ""),
             author=data.get("author", ""),
-            created_at=data.get("created_at", datetime.utcnow().isoformat()),
+            created_at=data.get("created_at", datetime.now(UTC).replace(tzinfo=None).isoformat()),
             tags=data.get("tags", []),
             parameters=data.get("parameters", {}),
         )
@@ -297,7 +297,7 @@ class StrategyGenome:
         data = self.to_dict()
         data.update(overrides)
         data["id"] = str(uuid.uuid4())[:8]  # New ID
-        data["created_at"] = datetime.utcnow().isoformat()
+        data["created_at"] = datetime.now(UTC).replace(tzinfo=None).isoformat()
         return self.from_dict(data)
 
     def with_parameters(self, **params) -> "StrategyGenome":

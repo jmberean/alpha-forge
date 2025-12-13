@@ -1,16 +1,16 @@
 """Tests for strategy genome."""
 
-import pytest
 import json
 
+import pytest
+
 from alphaforge.strategy.genome import (
-    StrategyGenome,
+    LogicalOperator,
+    Operator,
+    PositionSizing,
     Rule,
     RuleGroup,
-    Filter,
-    Operator,
-    LogicalOperator,
-    PositionSizing,
+    StrategyGenome,
 )
 from alphaforge.strategy.templates import StrategyTemplates
 

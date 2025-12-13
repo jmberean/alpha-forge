@@ -5,7 +5,7 @@ All metrics are computed on returns series to ensure consistency.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -51,7 +51,7 @@ class PerformanceMetrics:
     def from_returns(
         cls,
         returns: pd.Series,
-        positions: Optional[pd.Series] = None,
+        positions: pd.Series | None = None,
         risk_free_rate: float = 0.0,
         trading_days_per_year: int = 252,
     ) -> "PerformanceMetrics":

@@ -1,9 +1,8 @@
 """Tests for Combinatorially Purged Cross-Validation."""
 
-import pytest
-import numpy as np
-import pandas as pd
 from math import factorial
+
+import numpy as np
 
 from alphaforge.validation.cpcv import (
     CombinatorialPurgedCV,

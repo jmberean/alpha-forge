@@ -8,13 +8,12 @@ These are well-known strategies that serve as:
 """
 
 from alphaforge.strategy.genome import (
-    StrategyGenome,
+    LogicalOperator,
+    Operator,
+    PositionSizing,
     Rule,
     RuleGroup,
-    Filter,
-    Operator,
-    LogicalOperator,
-    PositionSizing,
+    StrategyGenome,
 )
 
 
@@ -140,7 +139,7 @@ class StrategyTemplates:
         """
         return StrategyGenome(
             name="Bollinger Breakout",
-            description=f"Buy on upper band breakout, exit at middle band",
+            description="Buy on upper band breakout, exit at middle band",
             entry_rules=RuleGroup(
                 rules=[
                     Rule(

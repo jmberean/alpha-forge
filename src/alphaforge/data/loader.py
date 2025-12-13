@@ -6,10 +6,9 @@ IMPORTANT: This module uses REAL market data only. No synthetic or fake data.
 
 import hashlib
 import json
-from datetime import datetime, date, timedelta
-from pathlib import Path
-from typing import Optional, Union
 import logging
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
@@ -33,7 +32,7 @@ class MarketDataLoader:
 
     def __init__(
         self,
-        cache_dir: Optional[Union[str, Path]] = None,
+        cache_dir: str | Path | None = None,
         cache_expiry_days: int = 1,
     ) -> None:
         """
@@ -71,7 +70,7 @@ class MarketDataLoader:
 
         fetch_time = datetime.fromisoformat(metadata["fetch_timestamp"])
         cache_end = date.fromisoformat(metadata["end_date"])
-        now = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
 
         # Cache is invalid if:
         # 1. It's older than expiry days AND end_date is recent (data might have updated)
@@ -105,7 +104,7 @@ class MarketDataLoader:
             "symbol": symbol,
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
-            "fetch_timestamp": datetime.utcnow().isoformat(),
+            "fetch_timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
             "rows": len(df),
         }
         with open(self._get_metadata_path(cache_path), "w") as f:
@@ -126,8 +125,8 @@ class MarketDataLoader:
     def load(
         self,
         symbol: str,
-        start: Union[str, date],
-        end: Optional[Union[str, date]] = None,
+        start: str | date,
+        end: str | date | None = None,
         use_cache: bool = True,
     ) -> OHLCVData:
         """
@@ -151,7 +150,7 @@ class MarketDataLoader:
             end = date.fromisoformat(end)
 
         cache_path = self._get_cache_path(symbol, start, end)
-        release_timestamp = datetime.utcnow()
+        release_timestamp = datetime.now(UTC).replace(tzinfo=None)
 
         # Try cache first
         if use_cache and self._is_cache_valid(cache_path, end):
@@ -164,13 +163,13 @@ class MarketDataLoader:
             if use_cache:
                 self._save_to_cache(df, cache_path, symbol, start, end)
 
-            release_timestamp = datetime.utcnow()
+            release_timestamp = datetime.now(UTC).replace(tzinfo=None)
 
         return OHLCVData(
             df=df,
             symbol=symbol,
             release_timestamp=release_timestamp,
-            transaction_timestamp=datetime.utcnow(),
+            transaction_timestamp=datetime.now(UTC).replace(tzinfo=None),
         )
 
     def _fetch_from_yfinance(
@@ -225,8 +224,8 @@ class MarketDataLoader:
     def load_multiple(
         self,
         symbols: list[str],
-        start: Union[str, date],
-        end: Optional[Union[str, date]] = None,
+        start: str | date,
+        end: str | date | None = None,
         use_cache: bool = True,
     ) -> dict[str, OHLCVData]:
         """
@@ -251,7 +250,7 @@ class MarketDataLoader:
 
         return results
 
-    def clear_cache(self, symbol: Optional[str] = None) -> int:
+    def clear_cache(self, symbol: str | None = None) -> int:
         """
         Clear cached data.
 

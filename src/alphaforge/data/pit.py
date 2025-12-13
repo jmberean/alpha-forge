@@ -5,12 +5,11 @@ Ensures all queries return data AS IT WAS KNOWN at a specific timestamp,
 preventing lookahead bias in backtesting and feature engineering.
 """
 
-from datetime import datetime, date, timedelta
-from typing import Optional, Union
 import logging
+from datetime import date, datetime, timedelta
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from alphaforge.data.schema import OHLCVData
 
@@ -36,7 +35,7 @@ class PointInTimeQuery:
     def __init__(
         self,
         data: OHLCVData,
-        release_delay: Optional[timedelta] = None,
+        release_delay: timedelta | None = None,
     ) -> None:
         """
         Initialize PIT query engine.
@@ -59,8 +58,8 @@ class PointInTimeQuery:
 
     def query(
         self,
-        as_of: Union[datetime, date, str],
-        lookback: Optional[int] = None,
+        as_of: datetime | date | str,
+        lookback: int | None = None,
     ) -> pd.DataFrame:
         """
         Query data as it was known at a specific point in time.
@@ -98,7 +97,7 @@ class PointInTimeQuery:
 
         return available_df
 
-    def get_latest(self, as_of: Union[datetime, date, str]) -> pd.Series:
+    def get_latest(self, as_of: datetime | date | str) -> pd.Series:
         """
         Get the most recent data point available at as_of time.
 
@@ -113,7 +112,7 @@ class PointInTimeQuery:
 
     def get_returns(
         self,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
         lookback: int = 252,
         log_returns: bool = False,
     ) -> pd.Series:
@@ -140,7 +139,7 @@ class PointInTimeQuery:
 
     def rolling_window(
         self,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
         window_size: int,
         step: int = 1,
     ) -> list[pd.DataFrame]:
@@ -174,7 +173,7 @@ class PointInTimeQuery:
 
     def expanding_window(
         self,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
         min_periods: int = 252,
     ) -> list[pd.DataFrame]:
         """
@@ -225,7 +224,7 @@ class PITFeatureComputer:
 
     def rolling_stat(
         self,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
         column: str,
         window: int,
         stat: str = "mean",
@@ -270,7 +269,7 @@ class PITFeatureComputer:
 
     def z_score(
         self,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
         column: str,
         window: int = 252,
     ) -> pd.Series:
@@ -298,7 +297,7 @@ class PITFeatureComputer:
 
     def expanding_rank(
         self,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
         column: str,
         min_periods: int = 60,
     ) -> pd.Series:

@@ -5,29 +5,29 @@ Orchestrates the complete validation process:
 1. Vectorized screening with DSR
 2. CPCV validation
 3. PBO calculation
-4. Stress testing (future)
+4. Hansen's SPA test (optional)
+5. Stress testing (optional)
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Optional
 import logging
-import json
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
-import numpy as np
 import pandas as pd
 
+from alphaforge.backtest.engine import BacktestEngine, BacktestResult, backtest_on_split
 from alphaforge.data.schema import OHLCVData
 from alphaforge.features.technical import TechnicalIndicators
 from alphaforge.strategy.genome import StrategyGenome
-from alphaforge.backtest.engine import BacktestEngine, BacktestResult, backtest_on_split
-from alphaforge.validation.dsr import DeflatedSharpeRatio, DSRResult
 from alphaforge.validation.cpcv import CombinatorialPurgedCV, CPCVResult
+from alphaforge.validation.dsr import DeflatedSharpeRatio, DSRResult
 from alphaforge.validation.pbo import (
-    ProbabilityOfOverfitting,
     PBOResult,
+    ProbabilityOfOverfitting,
     calculate_pbo_from_cpcv,
 )
+from alphaforge.validation.spa import SPAResult, SPATest
+from alphaforge.validation.stress import StressTestResult, StressTester
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,15 @@ class ValidationThresholds:
     min_sharpe: float = 1.0  # Minimum Sharpe for deployment
     min_sharpe_auto: float = 1.5  # Minimum for auto-accept
 
+    # SPA test thresholds
+    spa_pvalue_threshold: float = 0.05  # P-value threshold for SPA test
+    spa_bootstrap_reps: int = 1000  # Bootstrap replications
+
+    # Stress testing thresholds
+    stress_pass_rate: float = 0.80  # Minimum scenario pass rate (80%)
+    stress_min_sharpe: float = 0.0  # Minimum Sharpe during stress
+    stress_max_drawdown: float = 0.50  # Maximum drawdown during stress
+
     # Implementation shortfall (for future use)
     max_shortfall: float = 0.20  # Max backtest vs live gap
 
@@ -54,7 +63,7 @@ class ValidationThresholds:
     cpcv_n_splits: int = 16
     cpcv_test_splits: int = 8
     cpcv_embargo_pct: float = 0.02
-    cpcv_max_combinations: Optional[int] = 1000  # Limit for speed
+    cpcv_max_combinations: int | None = 1000  # Limit for speed
 
 
 @dataclass
@@ -68,11 +77,13 @@ class ValidationResult:
     # Component results
     backtest_result: BacktestResult
     dsr_result: DSRResult
-    cpcv_result: Optional[CPCVResult]
-    pbo_result: Optional[PBOResult]
+    cpcv_result: CPCVResult | None
+    pbo_result: PBOResult | None
+    spa_result: SPAResult | None = None
+    stress_result: StressTestResult | None = None
 
     # Metadata
-    validated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    validated_at: str = field(default_factory=lambda: datetime.now(UTC).replace(tzinfo=None).isoformat())
     thresholds: ValidationThresholds = field(default_factory=ValidationThresholds)
     n_trials: int = 1  # Total strategies tested
 
@@ -90,6 +101,8 @@ class ValidationResult:
                 "cpcv_mean_sharpe": self.cpcv_result.mean_sharpe
                 if self.cpcv_result
                 else None,
+                "spa_pvalue": self.spa_result.pvalue if self.spa_result else None,
+                "stress_pass_rate": self.stress_result.pass_rate if self.stress_result else None,
             },
             "validated_at": self.validated_at,
             "n_trials": self.n_trials,
@@ -104,13 +117,13 @@ class ValidationResult:
         lines = [
             f"Validation Result: {status}",
             f"Strategy: {self.strategy.name} ({self.strategy.id})",
-            f"",
-            f"Backtest Metrics:",
+            "",
+            "Backtest Metrics:",
             f"  Sharpe Ratio: {self.backtest_result.metrics.sharpe_ratio:.2f}",
             f"  Annual Return: {self.backtest_result.metrics.annualized_return:.1%}",
             f"  Max Drawdown: {self.backtest_result.metrics.max_drawdown:.1%}",
-            f"",
-            f"Statistical Validation:",
+            "",
+            "Statistical Validation:",
             f"  DSR: {self.dsr_result.dsr_pvalue:.4f} "
             f"({'PASS' if self.dsr_result.passed else 'FAIL'})",
             f"  Expected Max Sharpe (noise): {self.dsr_result.expected_max_sharpe:.2f}",
@@ -119,7 +132,7 @@ class ValidationResult:
         if self.cpcv_result:
             lines.extend(
                 [
-                    f"",
+                    "",
                     f"CPCV Validation ({self.cpcv_result.n_combinations} combinations):",
                     f"  Mean OOS Sharpe: {self.cpcv_result.mean_sharpe:.2f} ± {self.cpcv_result.std_sharpe:.2f}",
                     f"  PBO: {self.cpcv_result.pbo:.4f} "
@@ -130,10 +143,33 @@ class ValidationResult:
         if self.pbo_result:
             lines.extend(
                 [
-                    f"",
-                    f"PBO Analysis:",
+                    "",
+                    "PBO Analysis:",
                     f"  PBO: {self.pbo_result.pbo:.4f} ({self.pbo_result.pbo*100:.1f}%)",
                     f"  Verdict: {'PASS' if self.pbo_result.passed else 'FAIL'}",
+                ]
+            )
+
+        if self.spa_result:
+            lines.extend(
+                [
+                    "",
+                    "Hansen's SPA Test:",
+                    f"  P-value: {self.spa_result.pvalue:.4f}",
+                    f"  Benchmark: {self.spa_result.benchmark_name}",
+                    f"  Outperformance: {self.spa_result.outperformance:.4%} daily",
+                    f"  Verdict: {'PASS' if self.spa_result.passed else 'FAIL'}",
+                ]
+            )
+
+        if self.stress_result:
+            lines.extend(
+                [
+                    "",
+                    "Stress Testing:",
+                    f"  Scenarios Passed: {self.stress_result.scenarios_passed}/{self.stress_result.scenarios_tested}",
+                    f"  Pass Rate: {self.stress_result.pass_rate:.1%}",
+                    f"  Verdict: {'PASS' if self.stress_result.passed else 'FAIL'}",
                 ]
             )
 
@@ -149,11 +185,13 @@ class ValidationPipeline:
     2. DSR screening (accounts for multiple testing)
     3. CPCV validation (optional, compute-intensive)
     4. PBO calculation
+    5. Hansen's SPA test (optional)
+    6. Stress testing (optional)
     """
 
     def __init__(
         self,
-        thresholds: Optional[ValidationThresholds] = None,
+        thresholds: ValidationThresholds | None = None,
         initial_capital: float = 100000.0,
     ) -> None:
         """
@@ -179,6 +217,11 @@ class ValidationPipeline:
         self.pbo_calculator = ProbabilityOfOverfitting(
             pbo_threshold=self.thresholds.pbo_deploy
         )
+        self.spa_test = SPATest(
+            pvalue_threshold=self.thresholds.spa_pvalue_threshold,
+            bootstrap_reps=self.thresholds.spa_bootstrap_reps,
+        )
+        self.stress_tester = StressTester()
 
         # Backtest engine
         self.backtest_engine = BacktestEngine(initial_capital=initial_capital)
@@ -189,6 +232,11 @@ class ValidationPipeline:
         data: OHLCVData,
         n_trials: int = 1,
         run_cpcv: bool = True,
+        run_spa: bool = False,
+        run_stress: bool = False,
+        benchmark_returns: pd.Series | None = None,
+        benchmark_name: str = "SPY",
+        stress_scenarios: list[str] | None = None,
     ) -> ValidationResult:
         """
         Run full validation pipeline.
@@ -198,6 +246,11 @@ class ValidationPipeline:
             data: Market data
             n_trials: Total number of strategies tested (for DSR)
             run_cpcv: Whether to run CPCV (slower but more rigorous)
+            run_spa: Whether to run Hansen's SPA test
+            run_stress: Whether to run stress testing
+            benchmark_returns: Returns for SPA test (if run_spa=True)
+            benchmark_name: Name of benchmark for SPA test
+            stress_scenarios: List of scenario names to run (None = all)
 
         Returns:
             ValidationResult
@@ -230,9 +283,25 @@ class ValidationPipeline:
                 threshold=self.thresholds.pbo_deploy,
             )
 
+        # Stage 5: SPA test (if requested)
+        spa_result = None
+        if run_spa:
+            logger.info("Stage 5: Running Hansen's SPA test...")
+            spa_result = self._run_spa(
+                backtest_result.returns,
+                benchmark_returns,
+                benchmark_name,
+            )
+
+        # Stage 6: Stress testing (if requested)
+        stress_result = None
+        if run_stress:
+            logger.info("Stage 6: Running stress tests...")
+            stress_result = self._run_stress(strategy, data.symbol, stress_scenarios)
+
         # Determine pass/fail
         passed = self._evaluate_results(
-            backtest_result, dsr_result, cpcv_result, pbo_result
+            backtest_result, dsr_result, cpcv_result, pbo_result, spa_result, stress_result
         )
 
         # Determine auto-accept
@@ -248,6 +317,8 @@ class ValidationPipeline:
             dsr_result=dsr_result,
             cpcv_result=cpcv_result,
             pbo_result=pbo_result,
+            spa_result=spa_result,
+            stress_result=stress_result,
             thresholds=self.thresholds,
             n_trials=n_trials,
         )
@@ -272,12 +343,39 @@ class ValidationPipeline:
             max_combinations=self.thresholds.cpcv_max_combinations,
         )
 
+    def _run_spa(
+        self,
+        strategy_returns: pd.Series,
+        benchmark_returns: pd.Series | None,
+        benchmark_name: str,
+    ) -> SPAResult:
+        """Run Hansen's SPA test."""
+        if benchmark_returns is None:
+            raise ValueError("benchmark_returns required for SPA test")
+
+        return self.spa_test.test(
+            strategy_returns,
+            benchmark_returns,
+            benchmark_name,
+        )
+
+    def _run_stress(
+        self,
+        strategy: StrategyGenome,
+        symbol: str,
+        scenarios: list[str] | None = None,
+    ) -> StressTestResult:
+        """Run stress testing."""
+        return self.stress_tester.test_strategy(strategy, symbol, scenarios=scenarios)
+
     def _evaluate_results(
         self,
         backtest: BacktestResult,
         dsr: DSRResult,
-        cpcv: Optional[CPCVResult],
-        pbo: Optional[PBOResult],
+        cpcv: CPCVResult | None,
+        pbo: PBOResult | None,
+        spa: SPAResult | None,
+        stress: StressTestResult | None,
     ) -> bool:
         """Evaluate if strategy passes all criteria."""
         # Must pass DSR
@@ -302,14 +400,24 @@ class ValidationPipeline:
             logger.info(f"Failed PBO: {pbo.pbo:.4f} > {self.thresholds.pbo_deploy}")
             return False
 
+        # If SPA was run, must pass
+        if spa and not spa.passed:
+            logger.info(f"Failed SPA: p-value {spa.pvalue:.4f} >= {self.thresholds.spa_pvalue_threshold}")
+            return False
+
+        # If stress testing was run, must pass
+        if stress and not stress.passed:
+            logger.info(f"Failed stress testing: {stress.pass_rate:.1%} < {self.thresholds.stress_pass_rate}")
+            return False
+
         return True
 
     def _check_auto_accept(
         self,
         backtest: BacktestResult,
         dsr: DSRResult,
-        cpcv: Optional[CPCVResult],
-        pbo: Optional[PBOResult],
+        cpcv: CPCVResult | None,
+        pbo: PBOResult | None,
     ) -> bool:
         """Check if strategy meets auto-accept criteria."""
         # Higher DSR threshold

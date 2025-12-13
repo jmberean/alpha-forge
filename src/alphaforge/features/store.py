@@ -4,19 +4,17 @@ Feature store with point-in-time guarantees.
 Manages feature computation and retrieval ensuring no lookahead bias.
 """
 
-from datetime import datetime, date
-from typing import Optional, Union
-from pathlib import Path
-import logging
-import hashlib
 import json
+import logging
+from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from alphaforge.data.schema import OHLCVData
 from alphaforge.data.pit import PointInTimeQuery
+from alphaforge.data.schema import OHLCVData
 from alphaforge.features.technical import TechnicalIndicators
 
 logger = logging.getLogger(__name__)
@@ -34,7 +32,7 @@ class FeatureStore:
 
     def __init__(
         self,
-        cache_dir: Optional[Union[str, Path]] = None,
+        cache_dir: str | Path | None = None,
     ) -> None:
         """
         Initialize the feature store.
@@ -88,7 +86,7 @@ class FeatureStore:
     def compute_features(
         self,
         data: OHLCVData,
-        feature_names: Optional[list[str]] = None,
+        feature_names: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Compute features for the given data.
@@ -133,9 +131,9 @@ class FeatureStore:
     def get_features(
         self,
         data: OHLCVData,
-        as_of: Union[datetime, date, str],
-        feature_names: Optional[list[str]] = None,
-        lookback: Optional[int] = None,
+        as_of: datetime | date | str,
+        feature_names: list[str] | None = None,
+        lookback: int | None = None,
     ) -> pd.DataFrame:
         """
         Get features with point-in-time guarantee.
@@ -171,7 +169,7 @@ class FeatureStore:
     def get_feature_matrix(
         self,
         data: OHLCVData,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
         feature_names: list[str],
         dropna: bool = True,
     ) -> pd.DataFrame:
@@ -241,7 +239,7 @@ class FeatureStore:
         self,
         symbol: str,
         feature_set: str = "default",
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """
         Load cached features.
 
@@ -296,7 +294,7 @@ class FeatureView:
         self,
         store: FeatureStore,
         data: OHLCVData,
-        as_of: Union[datetime, date, str],
+        as_of: datetime | date | str,
     ) -> pd.DataFrame:
         """
         Get features for this view.

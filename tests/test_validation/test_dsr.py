@@ -1,6 +1,5 @@
 """Tests for Deflated Sharpe Ratio."""
 
-import pytest
 import numpy as np
 
 from alphaforge.validation.dsr import (

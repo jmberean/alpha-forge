@@ -10,10 +10,10 @@ DSR accounts for:
 - Serial correlation
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 from scipy import stats
-from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
