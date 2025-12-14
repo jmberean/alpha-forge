@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from alphaforge.backtest.engine import BacktestResult
-from alphaforge.backtest.metrics import calculate_metrics
+from alphaforge.backtest.metrics import PerformanceMetrics
 from alphaforge.strategy.genome import StrategyGenome
 
 
@@ -240,7 +240,7 @@ class EventDrivenEngine:
         returns_series = pd.Series(returns, index=data.index)
         portfolio_series = pd.Series(portfolio_values, index=data.index)
 
-        metrics = calculate_metrics(returns_series, portfolio_series)
+        metrics = PerformanceMetrics.from_returns(returns_series)
 
         return BacktestResult(
             strategy_id=strategy.id,
