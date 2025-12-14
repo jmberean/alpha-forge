@@ -125,17 +125,20 @@ class GeneticStrategyEvolver:
             for child1, child2 in zip(offspring[::2], offspring[1::2]):
                 if random.random() < self.config.crossover_prob:
                     self.toolbox.mate(child1, child2)
-                    del child1.fitness
-                    del child2.fitness
+                    if hasattr(child1, 'fitness'):
+                        delattr(child1, 'fitness')
+                    if hasattr(child2, 'fitness'):
+                        delattr(child2, 'fitness')
 
             # Apply mutation
             for mutant in offspring:
                 if random.random() < self.config.mutation_prob:
                     self.toolbox.mutate(mutant)
-                    del mutant.fitness
+                    if hasattr(mutant, 'fitness'):
+                        delattr(mutant, 'fitness')
 
             # Evaluate offspring with invalid fitness
-            invalid_ind = [ind for ind in offspring if not hasattr(ind, 'fitness') or not ind.fitness.valid]
+            invalid_ind = [ind for ind in offspring if not hasattr(ind, 'fitness')]
             fitnesses = [self._evaluate_strategy(ind) for ind in invalid_ind]
             for ind, fit in zip(invalid_ind, fitnesses):
                 ind.fitness = fit
@@ -173,16 +176,16 @@ class GeneticStrategyEvolver:
         templates = [
             StrategyTemplates.sma_crossover,
             StrategyTemplates.rsi_mean_reversion,
-            StrategyTemplates.macd_trend,
+            StrategyTemplates.macd_crossover,
             StrategyTemplates.bollinger_breakout,
-            StrategyTemplates.momentum,
+            StrategyTemplates.dual_momentum,
         ]
 
         for _ in range(self.config.population_size):
             # Pick random template
             template_func = random.choice(templates)
 
-            # Random parameters
+            # Random parameters matching actual template signatures
             if template_func == StrategyTemplates.sma_crossover:
                 strategy = template_func(
                     fast_period=random.randint(10, 30),
@@ -190,14 +193,25 @@ class GeneticStrategyEvolver:
                 )
             elif template_func == StrategyTemplates.rsi_mean_reversion:
                 strategy = template_func(
-                    period=random.randint(10, 20),
-                    oversold=random.randint(20, 35),
-                    overbought=random.randint(65, 80),
+                    rsi_period=random.randint(10, 20),
+                    oversold=float(random.randint(20, 35)),
+                    overbought=float(random.randint(65, 80)),
+                )
+            elif template_func == StrategyTemplates.macd_crossover:
+                strategy = template_func(
+                    fast=random.randint(8, 15),
+                    slow=random.randint(20, 30),
+                    signal=random.randint(6, 12),
                 )
             elif template_func == StrategyTemplates.bollinger_breakout:
                 strategy = template_func(
                     period=random.randint(15, 25),
-                    std_dev=random.uniform(1.5, 2.5),
+                    num_std=random.uniform(1.5, 2.5),
+                )
+            elif template_func == StrategyTemplates.dual_momentum:
+                strategy = template_func(
+                    abs_momentum_period=random.randint(180, 300),
+                    rel_momentum_period=random.randint(90, 160),
                 )
             else:
                 strategy = template_func()

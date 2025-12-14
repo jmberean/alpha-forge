@@ -216,6 +216,62 @@ def spy_data():
 - **Test Data**: Never commit large data files; use cache and `.gitignore`
 - **Type Hints**: All new functions must have complete type annotations
 
+## Frontend Development
+
+**Use the `frontend-design` plugin** for all frontend work. This plugin is enabled in `.claude/settings.json`.
+
+### Frontend Stack
+- **Framework**: Next.js 14 with TypeScript
+- **UI**: React 18, Tailwind CSS, Framer Motion
+- **Charts**: Recharts
+- **Location**: `frontend/`
+
+### Running Frontend + Backend
+
+```bash
+# Terminal 1: Backend API
+source .venv/bin/activate
+cd src && python -m alphaforge.api.server
+# Runs on http://localhost:8000
+
+# Terminal 2: Frontend
+cd frontend
+npm install
+npm run dev
+# Runs on http://localhost:3000
+```
+
+### Frontend Architecture
+
+```
+frontend/
+├── app/
+│   ├── layout.tsx          # Root layout
+│   └── page.tsx            # Main dashboard
+├── components/
+│   ├── StrategyFactory.tsx # Genetic evolution runner
+│   ├── StrategyList.tsx    # Validated strategies list
+│   ├── MetricsGrid.tsx     # Validation metrics display
+│   ├── ValidationPipeline.tsx # Pipeline statistics
+│   ├── ValidationRunner.tsx   # Single strategy validator
+│   └── Header.tsx          # Navigation header
+└── lib/
+    └── api.ts              # API client (all backend calls)
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/factory` | POST | Start strategy factory |
+| `/api/factory/{id}` | GET | Get factory results |
+| `/api/validate` | POST | Start single validation |
+| `/api/validate/{id}` | GET | Get validation results |
+| `/api/strategies` | GET | List all strategies |
+| `/api/templates` | GET | List strategy templates |
+| `/api/metrics/latest` | GET | Get latest metrics |
+| `/api/pipeline-stats` | GET | Get pipeline statistics |
+
 ## Reference
 
 - **System Specification**: `AlphaForge_System_Specification.md` - Complete system design

@@ -1,16 +1,23 @@
 {
-  "name": "Claude Code Sandbox",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bullseye",
+  "name": "AI Agent Sandbox",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "customizations": {
     "vscode": {
-      "settings": {},
-      "extensions": []
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "Google.gemini-code-assist"
+      ]
     }
   },
-  // ADD THIS LINE BELOW to save your login info to a persistent volume
   "mounts": [
-    "source=claude-config,target=/home/node/.config"
+    // FIX: Claude stores auth in .claude, not .config
+    "source=claude-data,target=/home/node/.claude,type=volume",
+    // FIX: Gemini stores auth in .gemini
+    "source=gemini-data,target=/home/node/.gemini,type=volume"
   ],
-  "postCreateCommand": "npm install -g @anthropic-ai/claude-code",
   "remoteUser": "node"
 }

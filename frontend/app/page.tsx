@@ -5,9 +5,9 @@ import { motion } from 'framer-motion'
 import Header from '@/components/Header'
 import ValidationPipeline from '@/components/ValidationPipeline'
 import MetricsGrid from '@/components/MetricsGrid'
-import BacktestChart from '@/components/BacktestChart'
 import StrategyList from '@/components/StrategyList'
 import ValidationRunner from '@/components/ValidationRunner'
+import StrategyFactory from '@/components/StrategyFactory'
 
 export default function Dashboard() {
   const [mounted, setMounted] = useState(false)
@@ -47,7 +47,10 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* Validation Pipeline */}
+        {/* Strategy Factory - Main Feature */}
+        <StrategyFactory />
+
+        {/* Validation Pipeline Stats */}
         <ValidationPipeline />
 
         {/* Metrics Grid */}
@@ -55,15 +58,12 @@ export default function Dashboard() {
 
         {/* Two Column Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Backtest Performance */}
-          <BacktestChart />
-
           {/* Strategy Candidates */}
           <StrategyList />
-        </div>
 
-        {/* Validation Runner - LIVE! */}
-        <ValidationRunner />
+          {/* Single Strategy Validation */}
+          <ValidationRunner />
+        </div>
       </main>
     </div>
   )

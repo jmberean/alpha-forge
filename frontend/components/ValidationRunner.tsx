@@ -1,15 +1,34 @@
 'use client'
 
 import { motion, AnimatePresence } from 'framer-motion'
-import { useState } from 'react'
-import { validateStrategy, pollValidationResult, type ValidationResult } from '@/lib/api'
+import { useState, useEffect } from 'react'
+import { validateStrategy, pollValidationResult, listTemplates, type ValidationResult, type Template } from '@/lib/api'
 
 export default function ValidationRunner() {
   const [symbol, setSymbol] = useState('SPY')
   const [template, setTemplate] = useState('sma_crossover')
+  const [templates, setTemplates] = useState<Template[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [logs, setLogs] = useState<string[]>([])
   const [result, setResult] = useState<ValidationResult | null>(null)
+  const [runCpcv, setRunCpcv] = useState(true)
+  const [runStress, setRunStress] = useState(true)
+
+  // Fetch templates on mount
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const data = await listTemplates()
+        setTemplates(data)
+        if (data.length > 0 && !data.find(t => t.name === template)) {
+          setTemplate(data[0].name)
+        }
+      } catch (err) {
+        console.error('Failed to fetch templates:', err)
+      }
+    }
+    fetchTemplates()
+  }, [])
 
   const handleRunValidation = async () => {
     setIsRunning(true)
@@ -24,12 +43,12 @@ export default function ValidationRunner() {
         start_date: '2020-01-01',
         end_date: '2023-12-31',
         n_trials: 100,
-        run_cpcv: false,
+        run_cpcv: runCpcv,
         run_spa: false,
-        run_stress: false,
+        run_stress: runStress,
       })
 
-      setLogs(prev => [...prev, `✓ Validation started: ${response.validation_id}`])
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Validation started: ${response.validation_id}`])
 
       // Poll for results
       const finalResult = await pollValidationResult(
@@ -46,7 +65,7 @@ export default function ValidationRunner() {
       setIsRunning(false)
 
     } catch (error) {
-      setLogs(prev => [...prev, `✗ Error: ${error}`])
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Error: ${error}`])
       setIsRunning(false)
     }
   }
@@ -60,9 +79,9 @@ export default function ValidationRunner() {
     >
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <div className="w-1 h-6 bg-terminal-cyan" />
+          <div className="w-1 h-6 bg-terminal-green" />
           <h2 className="text-xl font-display font-bold text-terminal-bright tracking-wide">
-            RUN VALIDATION
+            SINGLE STRATEGY VALIDATION
           </h2>
         </div>
         {isRunning && (
@@ -74,7 +93,7 @@ export default function ValidationRunner() {
       </div>
 
       {/* Input Form */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-4 mb-4">
         <div>
           <label className="text-xs font-mono text-terminal-text/60 mb-2 block">SYMBOL</label>
           <input
@@ -82,7 +101,7 @@ export default function ValidationRunner() {
             value={symbol}
             onChange={(e) => setSymbol(e.target.value.toUpperCase())}
             disabled={isRunning}
-            className="w-full px-3 py-2 bg-terminal-bg border border-terminal-border rounded text-sm font-mono text-terminal-text focus:outline-none focus:border-terminal-green disabled:opacity-50"
+            className="w-full px-3 py-2 bg-terminal-bg border border-terminal-border rounded text-sm font-mono text-terminal-bright focus:outline-none focus:border-terminal-green disabled:opacity-50"
           />
         </div>
         <div>
@@ -91,21 +110,49 @@ export default function ValidationRunner() {
             value={template}
             onChange={(e) => setTemplate(e.target.value)}
             disabled={isRunning}
-            className="w-full px-3 py-2 bg-terminal-bg border border-terminal-border rounded text-sm font-mono text-terminal-text focus:outline-none focus:border-terminal-green disabled:opacity-50"
+            className="w-full px-3 py-2 bg-terminal-bg border border-terminal-border rounded text-sm font-mono text-terminal-bright focus:outline-none focus:border-terminal-green disabled:opacity-50"
           >
-            <option value="sma_crossover">SMA Crossover</option>
-            <option value="rsi_mean_reversion">RSI Mean Reversion</option>
-            <option value="macd_trend">MACD Trend</option>
-            <option value="bollinger_breakout">Bollinger Breakout</option>
-            <option value="buy_and_hold">Buy and Hold</option>
+            {templates.length === 0 ? (
+              <option value="">Loading templates...</option>
+            ) : (
+              templates.map((t) => (
+                <option key={t.name} value={t.name}>
+                  {t.display_name}
+                </option>
+              ))
+            )}
           </select>
         </div>
+      </div>
+
+      {/* Options */}
+      <div className="flex gap-6 mb-4">
+        <label className="flex items-center gap-2 text-xs font-mono text-terminal-text/80 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={runCpcv}
+            onChange={(e) => setRunCpcv(e.target.checked)}
+            disabled={isRunning}
+            className="w-4 h-4 rounded border-terminal-border bg-terminal-bg text-terminal-green focus:ring-terminal-green"
+          />
+          Run CPCV
+        </label>
+        <label className="flex items-center gap-2 text-xs font-mono text-terminal-text/80 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={runStress}
+            onChange={(e) => setRunStress(e.target.checked)}
+            disabled={isRunning}
+            className="w-4 h-4 rounded border-terminal-border bg-terminal-bg text-terminal-green focus:ring-terminal-green"
+          />
+          Run Stress Test
+        </label>
       </div>
 
       {/* Run Button */}
       <button
         onClick={handleRunValidation}
-        disabled={isRunning}
+        disabled={isRunning || templates.length === 0}
         className="w-full px-4 py-3 bg-terminal-green text-terminal-bg rounded font-mono font-semibold hover:bg-terminal-green/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-6"
       >
         {isRunning ? 'VALIDATING...' : 'START VALIDATION'}
@@ -113,7 +160,7 @@ export default function ValidationRunner() {
 
       {/* Logs Output */}
       {logs.length > 0 && (
-        <div className="bg-terminal-bg border border-terminal-border rounded-lg p-4 max-h-64 overflow-y-auto font-mono text-xs">
+        <div className="bg-terminal-bg border border-terminal-border rounded-lg p-4 max-h-48 overflow-y-auto font-mono text-xs mb-4">
           <AnimatePresence>
             {logs.map((log, idx) => (
               <motion.div
@@ -121,10 +168,10 @@ export default function ValidationRunner() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 className={`${
-                  log.includes('✓') ? 'text-terminal-green' :
-                  log.includes('✗') || log.includes('FAIL') ? 'text-terminal-red' :
+                  log.includes('✓') || log.includes('PASSED') ? 'text-terminal-green' :
+                  log.includes('✗') || log.includes('FAIL') || log.includes('Error') ? 'text-terminal-red' :
                   log.includes('⚠') ? 'text-terminal-amber' :
-                  'text-terminal-text'
+                  'text-terminal-text/80'
                 }`}
               >
                 {log}
@@ -139,7 +186,7 @@ export default function ValidationRunner() {
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="mt-6 p-4 border border-terminal-border rounded-lg bg-terminal-bg/50"
+          className="p-4 border border-terminal-border rounded-lg bg-terminal-bg/50"
         >
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-mono font-bold text-terminal-bright">RESULTS</h3>
@@ -148,26 +195,26 @@ export default function ValidationRunner() {
                 ? 'bg-terminal-green/10 border border-terminal-green text-terminal-green'
                 : 'bg-terminal-red/10 border border-terminal-red text-terminal-red'
             }`}>
-              {result.passed ? '✓ PASSED' : '✗ FAILED'}
+              {result.passed ? 'PASSED' : 'FAILED'}
             </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
               <div className="text-[10px] font-mono text-terminal-text/40 mb-1">SHARPE</div>
-              <div className="text-lg font-mono font-bold text-terminal-text metric-value">
+              <div className={`text-lg font-mono font-bold metric-value ${result.metrics.sharpe_ratio > 1 ? 'text-terminal-green' : 'text-terminal-amber'}`}>
                 {result.metrics.sharpe_ratio.toFixed(2)}
               </div>
             </div>
             <div>
               <div className="text-[10px] font-mono text-terminal-text/40 mb-1">DSR</div>
-              <div className="text-lg font-mono font-bold text-terminal-text metric-value">
-                {result.metrics.dsr.toFixed(2)}
+              <div className={`text-lg font-mono font-bold metric-value ${result.metrics.dsr > 0.95 ? 'text-terminal-green' : 'text-terminal-red'}`}>
+                {result.metrics.dsr.toFixed(3)}
               </div>
             </div>
             <div>
               <div className="text-[10px] font-mono text-terminal-text/40 mb-1">RETURN</div>
-              <div className="text-lg font-mono font-bold text-terminal-green metric-value">
+              <div className={`text-lg font-mono font-bold metric-value ${result.metrics.annual_return > 0 ? 'text-terminal-green' : 'text-terminal-red'}`}>
                 {(result.metrics.annual_return * 100).toFixed(1)}%
               </div>
             </div>

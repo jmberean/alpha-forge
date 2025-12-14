@@ -57,6 +57,71 @@ export interface Template {
   display_name: string
 }
 
+export interface FactoryRequest {
+  symbol: string
+  start_date?: string
+  end_date?: string
+  population_size?: number
+  generations?: number
+  target_strategies?: number
+  validate_top_n?: number
+}
+
+export interface FactoryResponse {
+  factory_id: string
+  status: string
+  message: string
+}
+
+export interface FactoryResult {
+  factory_id: string
+  status: 'running' | 'completed' | 'failed'
+  strategies: Strategy[]
+  stats: {
+    generated: number
+    validated: number
+    passed: number
+  }
+  timestamp: string
+  logs: string[]
+}
+
+export interface PipelineStats {
+  stages: {
+    name: string
+    count: number
+    rate: number
+  }[]
+  totals: {
+    total_generated: number
+    total_validated: number
+    total_passed: number
+    total_deployed: number
+  }
+}
+
+export interface MetricsData {
+  has_data: boolean
+  strategy_name?: string
+  passed?: boolean
+  timestamp?: string
+  metrics: {
+    name: string
+    value: number
+    threshold: string
+    unit: string
+  }[]
+}
+
+export interface SystemStatus {
+  status: string
+  version: string
+  total_validations: number
+  passed_validations: number
+  pass_rate: number
+  factory_runs: number
+}
+
 /**
  * Start a new strategy validation
  */
@@ -139,6 +204,106 @@ export async function listTemplates(): Promise<Template[]> {
 
   if (!response.ok) {
     throw new Error(`Failed to fetch templates: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Start a strategy factory run
+ */
+export async function runFactory(request: FactoryRequest): Promise<FactoryResponse> {
+  const response = await fetch(`${API_BASE}/api/factory`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Factory failed: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get factory result by ID
+ */
+export async function getFactoryResult(factoryId: string): Promise<FactoryResult> {
+  const response = await fetch(`${API_BASE}/api/factory/${factoryId}`)
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch factory result: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Poll for factory result until complete
+ */
+export async function pollFactoryResult(
+  factoryId: string,
+  onUpdate?: (result: FactoryResult) => void,
+  intervalMs: number = 2000
+): Promise<FactoryResult> {
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(async () => {
+      try {
+        const result = await getFactoryResult(factoryId)
+
+        if (onUpdate) {
+          onUpdate(result)
+        }
+
+        if (result.status === 'completed' || result.status === 'failed') {
+          clearInterval(interval)
+          resolve(result)
+        }
+      } catch (error) {
+        clearInterval(interval)
+        reject(error)
+      }
+    }, intervalMs)
+  })
+}
+
+/**
+ * Get pipeline statistics
+ */
+export async function getPipelineStats(): Promise<PipelineStats> {
+  const response = await fetch(`${API_BASE}/api/pipeline-stats`)
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch pipeline stats: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get latest metrics
+ */
+export async function getLatestMetrics(): Promise<MetricsData> {
+  const response = await fetch(`${API_BASE}/api/metrics/latest`)
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch metrics: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get system status
+ */
+export async function getSystemStatus(): Promise<SystemStatus> {
+  const response = await fetch(`${API_BASE}/api/system/status`)
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch system status: ${response.statusText}`)
   }
 
   return response.json()

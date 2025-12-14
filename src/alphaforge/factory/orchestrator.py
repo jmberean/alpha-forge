@@ -153,12 +153,12 @@ class StrategyFactory:
             template_choice = random.choice([
                 StrategyTemplates.sma_crossover,
                 StrategyTemplates.rsi_mean_reversion,
-                StrategyTemplates.macd_trend,
+                StrategyTemplates.macd_crossover,
                 StrategyTemplates.bollinger_breakout,
-                StrategyTemplates.momentum,
+                StrategyTemplates.dual_momentum,
             ])
 
-            # Random parameters
+            # Random parameters matching actual template signatures
             if template_choice == StrategyTemplates.sma_crossover:
                 strategy = template_choice(
                     fast_period=random.randint(10, 30),
@@ -166,14 +166,25 @@ class StrategyFactory:
                 )
             elif template_choice == StrategyTemplates.rsi_mean_reversion:
                 strategy = template_choice(
-                    period=random.randint(10, 20),
-                    oversold=random.randint(20, 35),
-                    overbought=random.randint(65, 80),
+                    rsi_period=random.randint(10, 20),
+                    oversold=float(random.randint(20, 35)),
+                    overbought=float(random.randint(65, 80)),
+                )
+            elif template_choice == StrategyTemplates.macd_crossover:
+                strategy = template_choice(
+                    fast=random.randint(8, 15),
+                    slow=random.randint(20, 30),
+                    signal=random.randint(6, 12),
                 )
             elif template_choice == StrategyTemplates.bollinger_breakout:
                 strategy = template_choice(
                     period=random.randint(15, 25),
-                    std_dev=random.uniform(1.5, 2.5),
+                    num_std=random.uniform(1.5, 2.5),
+                )
+            elif template_choice == StrategyTemplates.dual_momentum:
+                strategy = template_choice(
+                    abs_momentum_period=random.randint(180, 300),
+                    rel_momentum_period=random.randint(90, 160),
                 )
             else:
                 strategy = template_choice()
