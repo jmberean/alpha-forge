@@ -5,6 +5,8 @@ Uses Optuna's Tree-structured Parzen Estimator (TPE) for efficient
 parameter optimization.
 """
 
+from __future__ import annotations
+
 from typing import Any
 
 import optuna

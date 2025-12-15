@@ -4,6 +4,8 @@ Data quality validation framework.
 Automated checks to ensure data integrity before backtesting.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from enum import Enum

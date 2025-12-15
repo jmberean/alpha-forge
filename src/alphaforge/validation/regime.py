@@ -5,6 +5,8 @@ Detects market regimes (normal, trending, high_vol, crisis) to adjust
 validation thresholds accordingly.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 

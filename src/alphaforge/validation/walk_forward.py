@@ -5,6 +5,8 @@ Simulates realistic parameter optimization by testing on out-of-sample data
 after optimizing on in-sample windows.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable

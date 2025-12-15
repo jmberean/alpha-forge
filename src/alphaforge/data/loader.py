@@ -4,6 +4,8 @@ Market data loader using yfinance with local caching.
 IMPORTANT: This module uses REAL market data only. No synthetic or fake data.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import logging

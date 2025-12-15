@@ -4,6 +4,8 @@ Feature store with point-in-time guarantees.
 Manages feature computation and retrieval ensuring no lookahead bias.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import date, datetime

@@ -4,6 +4,8 @@ LLM temporal safety framework.
 Tests LLM for future knowledge contamination to prevent lookahead bias.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Protocol

@@ -9,6 +9,8 @@ Orchestrates the complete validation process:
 5. Stress testing (optional)
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime

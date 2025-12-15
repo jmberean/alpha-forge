@@ -4,6 +4,8 @@ Signal generation from strategy specifications.
 Converts StrategyGenome rules into actual trading signals.
 """
 
+from __future__ import annotations
+
 
 import pandas as pd
 

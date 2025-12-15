@@ -4,6 +4,8 @@ Universe management and survivorship bias prevention.
 Ensures backtests include delisted securities to avoid survivorship bias.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Set

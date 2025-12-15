@@ -120,6 +120,66 @@ export interface SystemStatus {
   passed_validations: number
   pass_rate: number
   factory_runs: number
+  discovery_runs: number
+}
+
+export interface DiscoveryRequest {
+  symbol: string
+  start_date?: string
+  end_date?: string
+  population_size?: number
+  n_generations?: number
+  n_objectives?: number
+  min_sharpe?: number
+  max_turnover?: number
+  max_complexity?: number
+  validation_split?: number
+}
+
+export interface DiscoveryResponse {
+  discovery_id: string
+  status: string
+  message: string
+}
+
+export interface ExpressionStrategy {
+  formula: string
+  size: number
+  depth: number
+  complexity: number
+  fitness: {
+    sharpe: number
+    drawdown: number
+    turnover: number
+    complexity: number
+  }
+}
+
+export interface GenerationStats {
+  generation: number
+  pareto_front_size: number
+  fitness: {
+    avg: Record<string, number>
+    best: Record<string, number>
+  }
+  diversity: {
+    unique_formulas: number
+    avg_size: number
+    avg_depth: number
+  }
+}
+
+export interface DiscoveryResult {
+  discovery_id: string
+  status: 'running' | 'completed' | 'failed'
+  pareto_front: ExpressionStrategy[]
+  factor_zoo: string[]
+  best_by_objective: Record<string, ExpressionStrategy>
+  ensemble_weights: Record<string, number>
+  generation_stats: GenerationStats[]
+  timestamp: string
+  logs: string[]
+  error?: string
 }
 
 /**
@@ -307,4 +367,65 @@ export async function getSystemStatus(): Promise<SystemStatus> {
   }
 
   return response.json()
+}
+
+/**
+ * Start a new discovery run
+ */
+export async function runDiscovery(request: DiscoveryRequest): Promise<DiscoveryResponse> {
+  const response = await fetch(`${API_BASE}/api/discovery`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Discovery failed: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Get discovery result by ID
+ */
+export async function getDiscoveryResult(discoveryId: string): Promise<DiscoveryResult> {
+  const response = await fetch(`${API_BASE}/api/discovery/${discoveryId}`)
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch discovery result: ${response.statusText}`)
+  }
+
+  return response.json()
+}
+
+/**
+ * Poll for discovery result until complete
+ */
+export async function pollDiscoveryResult(
+  discoveryId: string,
+  onUpdate?: (result: DiscoveryResult) => void,
+  intervalMs: number = 2000
+): Promise<DiscoveryResult> {
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(async () => {
+      try {
+        const result = await getDiscoveryResult(discoveryId)
+
+        if (onUpdate) {
+          onUpdate(result)
+        }
+
+        if (result.status === 'completed' || result.status === 'failed') {
+          clearInterval(interval)
+          resolve(result)
+        }
+      } catch (error) {
+        clearInterval(interval)
+        reject(error)
+      }
+    }, intervalMs)
+  })
 }

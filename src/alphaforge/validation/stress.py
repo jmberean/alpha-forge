@@ -8,6 +8,8 @@ Tests strategies under extreme market conditions:
 A strategy must pass 80% of scenarios to be considered robust.
 """
 
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field

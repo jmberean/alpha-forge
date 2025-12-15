@@ -4,6 +4,8 @@ Grid search optimizer.
 Exhaustively searches all combinations of parameters in a grid.
 """
 
+from __future__ import annotations
+
 import itertools
 from typing import Any
 

@@ -1,23 +1,24 @@
 {
-  "name": "AI Agent Sandbox",
+  "name": "AlphaForge Dev",
   "build": {
     "dockerfile": "Dockerfile"
   },
   "customizations": {
     "vscode": {
       "settings": {
-        "terminal.integrated.defaultProfile.linux": "bash"
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
       },
       "extensions": [
-        "Google.gemini-code-assist"
+        "dbaeumer.vscode-eslint",
+        "ms-python.python"
       ]
     }
   },
   "mounts": [
-    // FIX: Claude stores auth in .claude, not .config
-    "source=claude-data,target=/home/node/.claude,type=volume",
-    // FIX: Gemini stores auth in .gemini
-    "source=gemini-data,target=/home/node/.gemini,type=volume"
+    "source=claude-code-auth,target=/home/vscode/.claude,type=volume"
   ],
-  "remoteUser": "node"
+  "postStartCommand": "sudo chown -R vscode:vscode /home/vscode/.claude",
+  "postCreateCommand": "pip install -e '.[dev]' && cd frontend && npm install",
+  "remoteUser": "vscode"
 }

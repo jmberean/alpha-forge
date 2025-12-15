@@ -1,189 +1,82 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Development guidance for Claude Code when working with AlphaForge.
 
 ## Project Overview
 
-AlphaForge is a production-grade platform for systematic trading strategy discovery, validation, and deployment. It implements defense-in-depth against overfitting, lookahead bias, and execution reality mismatch.
+AlphaForge is a systematic trading strategy discovery and validation platform. Defense-in-depth against overfitting, lookahead bias, and execution mismatch.
 
-**Current Status**: MVP7 Complete - Full-featured systematic trading platform with bi-temporal data, 30+ advanced indicators, genetic strategy evolution, and event-driven backtesting. Production-ready with 300+ tests.
+**Status**: MVP8 - Multi-objective GP discovery (NSGA-III), 300+ tests, production-ready.
 
 ## Critical Rules
 
-**NO SYNTHETIC DATA, NO PLACEHOLDERS** - All data must be real market data.
-- Use yfinance for market data retrieval
-- Tests use real historical data (cached for reproducibility)
+### NO SYNTHETIC DATA
+- All data must be real market data via yfinance
+- Tests use cached real historical data
 - Never generate fake/random price data
-- Data cache location: `data/cache/` (Git-ignored)
+- Cache: `data/cache/` (git-ignored)
 
-**NO UNNECESSARY MD FILES** - Do not create markdown documentation files unless explicitly requested.
-- NEVER proactively create documentation files (*.md) or README files
-- Only create MD files if the user explicitly requests them
-- Update existing documentation (CLAUDE.md) instead of creating new files
-- Exception: Required project files (PLAN.md, RESULTS.md when completing major milestones)
+### NO UNNECESSARY MD FILES
+- Never create *.md files unless explicitly requested
+- Update CLAUDE.md instead of creating new docs
+- Exception: PLAN.md, RESULTS.md for milestones
 
-**Code Quality Standards**:
-- Python 3.10+ required
-- Type hints enforced (mypy strict mode)
-- All new code must pass: pytest, ruff, mypy
-- Test coverage expected for new features
+### CODE QUALITY
+- Python 3.10+ with type hints (mypy strict)
+- All code must pass: `pytest`, `ruff`, `mypy`
+- Test coverage required for new features
 
-## Workflow Requirements
-- Update CLAUDE.md when adding new modules or architectural changes
-- Document significant deviations from AlphaForge_System_Specification.md
-
-## Build and Test Commands
+## Quick Start
 
 ```bash
-# Install dependencies (use venv)
-export PATH="$HOME/.local/bin:$PATH"
+./start.sh          # Start backend + frontend (background)
+./start-dev.sh      # Start with tmux split-screen
+./stop.sh           # Stop all services
+```
+
+- Frontend: http://localhost:3000
+- Backend: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+## Build & Test
+
+```bash
+# Setup
 uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"
 
-# Run tests
-pytest
+# Test
+pytest                                    # All tests
+pytest tests/test_validation/ -v          # Specific module
+pytest --cov=alphaforge                   # With coverage
 
-# Run specific test file
-pytest tests/test_validation/test_dsr.py -v
-
-# Run with coverage
-pytest --cov=alphaforge --cov-report=term-missing
-
-# Lint and format
-ruff check src/ tests/
-ruff format src/ tests/
-
-# Type check
+# Quality
+ruff check src/ tests/ && ruff format src/ tests/
 mypy src/alphaforge/
 ```
 
-## CLI Usage
+## CLI
 
 ```bash
-# Load market data
 alphaforge data SPY --start 2020-01-01
-
-# Run backtest
 alphaforge backtest SPY --template sma_crossover
-
-# Validate strategy (full suite)
-alphaforge validate SPY --template sma_crossover --n-trials 100 --run-cpcv --run-spa --run-stress
-
-# List templates
+alphaforge validate SPY --template sma_crossover --n-trials 100 --run-cpcv
 alphaforge templates
 ```
 
-## Code Architecture
-
-### Module Organization
+## Module Structure
 
 ```
 src/alphaforge/
-├── data/                 # Layer 1: Data loading and storage
-│   ├── loader.py        # MarketDataLoader (yfinance integration)
-│   ├── schema.py        # OHLCV data schemas
-│   ├── bitemporal.py    # Bi-temporal 3-timestamp schema (MVP4)
-│   ├── alfred.py        # Federal Reserve vintage data (MVP4)
-│   ├── universe.py      # Survivorship bias prevention (MVP4)
-│   └── quality.py       # Data quality validation (MVP4)
-├── features/            # Layer 2: Feature engineering
-│   ├── technical.py     # Basic indicators (SMA, RSI, MACD, Bollinger, ATR, ADX)
-│   ├── advanced_technical.py  # 30+ advanced indicators (MVP5)
-│   ├── lookahead.py     # Lookahead bias detection (MVP5)
-│   └── llm_safety.py    # LLM temporal safety framework (MVP5)
-├── strategy/            # Layer 3: Strategy representation
-│   ├── genome.py        # StrategyGenome (universal format)
-│   └── templates.py     # Pre-built strategy templates
-├── factory/             # Strategy generation (MVP6)
-│   ├── genetic.py       # DEAP genetic programming
-│   └── orchestrator.py  # Strategy factory coordination
-├── optimization/        # Parameter optimization (MVP3)
-│   ├── base.py          # Optimizer interface and ParameterSpace
-│   ├── grid.py          # Grid search
-│   ├── random.py        # Random search
-│   └── optuna.py        # Bayesian optimization (TPE)
-├── backtest/            # Layer 4: Backtesting engine
-│   ├── engine.py        # Vectorized backtesting
-│   ├── event_driven.py  # Event-driven backtest with queue models (MVP7)
-│   ├── metrics.py       # Performance metrics
-│   ├── impact.py        # Almgren-Chriss market impact (MVP2)
-│   └── trades.py        # Trade analysis (MVP3)
-├── validation/          # Layer 5: Statistical validation
-│   ├── dsr.py           # Deflated Sharpe Ratio
-│   ├── cpcv.py          # Combinatorially Purged CV
-│   ├── pbo.py           # Probability of Backtest Overfitting
-│   ├── spa.py           # Hansen's SPA test (MVP2)
-│   ├── stress.py        # Stress testing (MVP2)
-│   ├── regime.py        # Market regime detection (MVP3)
-│   ├── walk_forward.py  # Walk-forward analysis (MVP3)
-│   └── pipeline.py      # ValidationPipeline orchestrator
-├── analysis/            # Performance analysis (MVP3)
-│   └── attribution.py   # Regime-based attribution
-├── monitoring/          # Production monitoring (MVP2)
-│   └── cusum.py         # CUSUM degradation detection
-└── cli.py               # Command-line interface
-```
-
-## Key Features by Module
-
-**Bi-Temporal Data** (`alphaforge.data.bitemporal`): 3-timestamp schema (observation/release/transaction) for point-in-time queries, prevents lookahead bias at data layer (MVP4)
-
-**ALFRED Integration** (`alphaforge.data.alfred`): Federal Reserve vintage data with revision tracking for macro indicators (MVP4)
-
-**Survivorship Prevention** (`alphaforge.data.universe`): Track delisted securities, validate universe completeness (MVP4)
-
-**Data Quality** (`alphaforge.data.quality`): Automated validation (OHLC consistency, gaps, sanity checks) (MVP4)
-
-**Advanced Indicators** (`alphaforge.features.advanced_technical`): 30+ indicators (Stochastic, Williams %R, CCI, MFI, Ichimoku, Keltner, Donchian, Aroon, KST, etc.) (MVP5)
-
-**Lookahead Detection** (`alphaforge.features.lookahead`): Detect centered windows, future shifts, full-sample stats in feature functions (MVP5)
-
-**LLM Temporal Safety** (`alphaforge.features.llm_safety`): Canary questions to test LLM knowledge cutoff, prevent temporal contamination (MVP5)
-
-**Genetic Evolution** (`alphaforge.factory.genetic`): DEAP-based genetic programming for strategy evolution (population 100, generations 50) (MVP6)
-
-**Strategy Factory** (`alphaforge.factory.orchestrator`): Coordinate genetic evolution + template variations, generate 100+ candidates (MVP6)
-
-**Event-Driven Backtest** (`alphaforge.backtest.event_driven`): Queue models, latency simulation (50ms), partial fills, realistic execution (MVP7)
-
-**Implementation Shortfall** (`alphaforge.backtest.event_driven`): Compare vectorized vs event-driven results, <30% degradation threshold (MVP7)
-
-**Optimization** (`alphaforge.optimization`): Grid/Random/Optuna optimizers with ParameterSpace (MVP3)
-
-**Regime Detection** (`alphaforge.validation.regime`): Detect normal/trending/high_vol/crisis regimes (MVP3)
-
-**Trade Analysis** (`alphaforge.backtest.trades`): Win rate, profit factor, expectancy (MVP3)
-
-**Walk-Forward** (`alphaforge.validation.walk_forward`): Rolling/anchored windows with IS optimization + OOS testing (MVP3)
-
-**Performance Attribution** (`alphaforge.analysis.attribution`): Regime-based breakdown, monthly/yearly returns (MVP3)
-
-**SPA Test** (`alphaforge.validation.spa`): Hansen's Superior Predictive Ability test (MVP2)
-
-**Stress Testing** (`alphaforge.validation.stress`): 3 historical + 3 synthetic scenarios (MVP2)
-
-**CUSUM Monitoring** (`alphaforge.monitoring.cusum`): Real-time degradation detection (MVP2)
-
-**Market Impact** (`alphaforge.backtest.impact`): Almgren-Chriss parametric model (MVP2)
-
-## Validation Pipeline
-
-```python
-from alphaforge.validation.pipeline import ValidationPipeline
-
-pipeline = ValidationPipeline()
-result = pipeline.validate(
-    strategy=my_strategy,
-    data=market_data,
-    n_trials=1000,        # For DSR multiple testing correction
-    run_cpcv=True,        # Combinatorially Purged CV
-    run_spa=True,         # Hansen's SPA test
-    run_stress=True,      # Stress testing
-    benchmark_returns=spy_returns,
-    benchmark_name="SPY"
-)
-
-# result.passed: meets minimum thresholds
-# result.auto_accept: meets strict thresholds (DSR > 0.98, Sharpe > 1.5, PBO < 0.02)
+├── data/           # Layer 1: yfinance loader, bi-temporal schema, caching
+├── features/       # Layer 2: 30+ indicators, lookahead detection
+├── strategy/       # Layer 3: StrategyGenome, templates
+├── discovery/      # NSGA-III, expression trees, genetic operators
+├── backtest/       # Layer 4: Vectorized + event-driven engines
+├── validation/     # Layer 5: DSR, CPCV, PBO, SPA, stress testing
+├── optimization/   # Grid, random, Optuna optimizers
+├── monitoring/     # CUSUM degradation detection
+├── api/            # FastAPI server
+└── cli.py          # Command-line interface
 ```
 
 ## Validation Thresholds
@@ -193,87 +86,52 @@ result = pipeline.validate(
 | PBO | < 0.05 | < 0.02 |
 | DSR | > 0.95 | > 0.98 |
 | Sharpe | > 1.0 | > 1.5 |
-| Stress Pass Rate | ≥ 80% | ≥ 80% |
+| Stress Pass | ≥ 80% | ≥ 80% |
 | SPA p-value | < 0.05 | < 0.05 |
-
-## Testing Patterns
-
-**Use Real Market Data**:
-```python
-@pytest.fixture
-def spy_data():
-    """Real SPY data, cached for test reproducibility."""
-    loader = MarketDataLoader()
-    return loader.load("SPY", start="2020-01-01", end="2023-12-31")
-```
-
-**Never use synthetic price data** - Use yfinance or cached real data
 
 ## Common Pitfalls
 
-- **Lookahead Bias**: Ensure features use only past data (no `.shift(-1)` or centered windows)
-- **Data Snooping**: Always use `n_trials` parameter in DSR to account for all strategies tested
-- **Test Data**: Never commit large data files; use cache and `.gitignore`
-- **Type Hints**: All new functions must have complete type annotations
+- **Lookahead**: No `.shift(-1)`, no `center=True` windows
+- **Data Snooping**: Always pass `n_trials` to DSR for multiple testing correction
+- **Type Hints**: All functions need complete annotations
+- **Test Data**: Never commit data files; use cache + .gitignore
 
-## Frontend Development
+## Frontend
 
-**Use the `frontend-design` plugin** for all frontend work. This plugin is enabled in `.claude/settings.json`.
+Use `frontend-design` plugin for UI work.
 
-### Frontend Stack
-- **Framework**: Next.js 14 with TypeScript
-- **UI**: React 18, Tailwind CSS, Framer Motion
-- **Charts**: Recharts
-- **Location**: `frontend/`
+- Stack: Next.js 14, TypeScript, Tailwind, Framer Motion, Recharts
+- Location: `frontend/`
 
-### Running Frontend + Backend
+## Parallel Agents
 
-```bash
-# Terminal 1: Backend API
-source .venv/bin/activate
-cd src && python -m alphaforge.api.server
-# Runs on http://localhost:8000
+Use `run_in_background=True` for:
+- Independent code reviews
+- Codebase exploration across modules
+- Long-running tests/builds
 
-# Terminal 2: Frontend
-cd frontend
-npm install
-npm run dev
-# Runs on http://localhost:3000
+Stay sequential for:
+- Dependent tasks
+- Architecture decisions
+- Security-sensitive changes
+
+## Key Imports
+
+```python
+# Data
+from alphaforge.data.loader import MarketDataLoader
+
+# Discovery
+from alphaforge.discovery import DiscoveryOrchestrator, DiscoveryConfig
+
+# Validation
+from alphaforge.validation.pipeline import ValidationPipeline
+
+# Backtest
+from alphaforge.backtest.engine import BacktestEngine
+
+# Strategy
+from alphaforge.strategy.templates import StrategyTemplates
 ```
 
-### Frontend Architecture
-
-```
-frontend/
-├── app/
-│   ├── layout.tsx          # Root layout
-│   └── page.tsx            # Main dashboard
-├── components/
-│   ├── StrategyFactory.tsx # Genetic evolution runner
-│   ├── StrategyList.tsx    # Validated strategies list
-│   ├── MetricsGrid.tsx     # Validation metrics display
-│   ├── ValidationPipeline.tsx # Pipeline statistics
-│   ├── ValidationRunner.tsx   # Single strategy validator
-│   └── Header.tsx          # Navigation header
-└── lib/
-    └── api.ts              # API client (all backend calls)
-```
-
-### API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/factory` | POST | Start strategy factory |
-| `/api/factory/{id}` | GET | Get factory results |
-| `/api/validate` | POST | Start single validation |
-| `/api/validate/{id}` | GET | Get validation results |
-| `/api/strategies` | GET | List all strategies |
-| `/api/templates` | GET | List strategy templates |
-| `/api/metrics/latest` | GET | Get latest metrics |
-| `/api/pipeline-stats` | GET | Get pipeline statistics |
-
-## Reference
-
-- **System Specification**: `AlphaForge_System_Specification.md` - Complete system design
-- **MVP Roadmap**: `MVP_ROADMAP.md` - MVP4-12 implementation plan (26-35 weeks to production)
-- **README**: `README.md` - Quick start and installation
+See README.md for comprehensive documentation.

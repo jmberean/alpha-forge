@@ -7,6 +7,8 @@ Implements 3-timestamp schema to eliminate lookahead bias at the data layer:
 - transaction_time: When it entered our database
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any

@@ -7,6 +7,8 @@ All strategies are serialized to a standard format for:
 - Reproducibility and audit trails
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import uuid

@@ -9,6 +9,8 @@ Every data point carries three timestamps:
 This prevents lookahead bias at the data infrastructure level.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import date, datetime
 

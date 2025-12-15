@@ -2,299 +2,782 @@
 
 **Production-grade platform for systematic trading strategy discovery, validation, and deployment.**
 
-AlphaForge implements defense-in-depth against the primary failure modes in quantitative finance: overfitting, lookahead bias, and execution reality mismatch.
+AlphaForge implements defense-in-depth against the primary failure modes in quantitative finance: **overfitting**, **lookahead bias**, and **execution reality mismatch**. It combines multi-objective genetic programming with rigorous statistical validation to discover trading strategies that are robust, interpretable, and production-ready.
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-300%2B%20passing-brightgreen.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## Table of Contents
 
-## 🎯 Key Differentiators
+- [Key Features](#key-features)
+- [Quick Start](#quick-start)
+- [Architecture](#architecture)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Web Interface](#web-interface)
+  - [Command Line Interface](#command-line-interface)
+  - [Python API](#python-api)
+- [Strategy Discovery System](#strategy-discovery-system)
+- [Validation Pipeline](#validation-pipeline)
+- [Backtesting Engine](#backtesting-engine)
+- [Technical Indicators](#technical-indicators)
+- [API Reference](#api-reference)
+- [Configuration](#configuration)
+- [Testing](#testing)
+- [Project Structure](#project-structure)
+
+---
+
+## Key Features
+
+### Multi-Objective Strategy Discovery (NSGA-III)
+
+- **Expression tree genetic programming** evolves mathematical formulas representing trading signals
+- **4 simultaneous objectives**: Sharpe ratio, maximum drawdown, turnover, and complexity
+- **Pareto front optimization** finds non-dominated strategies across all objectives
+- **Factor zoo** maintains a library of validated, unique formulas
+- **35+ typed operators** across temporal, cross-sectional, arithmetic, and logical categories
+
+### Defense-in-Depth Validation
 
 | Problem | Industry Failure Rate | AlphaForge Solution |
 |---------|----------------------|---------------------|
-| **False discovery** | 95% of published factors fail | CPCV + PBO + DSR validation |
-| **Lookahead bias** | 60-80% of retail algos | Bi-temporal data + feature validation |
-| **Execution gap** | 70% fail within 6 months | Event-driven backtest + implementation shortfall |
-| **Survivorship bias** | Common in retail platforms | Delisted securities tracking |
+| False discovery (overfitting) | 95% of published factors | CPCV + PBO + DSR validation |
+| Lookahead bias | 60-80% of retail algos | Bi-temporal data architecture |
+| Execution gap | 70% fail within 6 months | Event-driven backtesting + impact modeling |
 
-## ✨ Features
+### Statistical Validation Pipeline
 
-### Data Architecture (MVP4)
-- **Bi-temporal data schema** - 3-timestamp design (observation/release/transaction) prevents lookahead bias at infrastructure level
-- **ALFRED integration** - Federal Reserve vintage data with full revision history for 14+ macro indicators
-- **Survivorship bias prevention** - Track delisted securities, validate universe completeness
-- **Automated data quality** - 9 validation checks (OHLC consistency, gaps, sanity, duplicates)
+- **Deflated Sharpe Ratio (DSR)**: Multiple testing correction accounting for all strategies tested
+- **Combinatorially Purged Cross-Validation (CPCV)**: Tests 12,870 train/test combinations with temporal embargo
+- **Probability of Backtest Overfitting (PBO)**: Quantifies likelihood strategy is overfit
+- **Hansen's Superior Predictive Ability (SPA)**: Tests statistical significance vs benchmark
+- **Stress Testing**: 3 historical scenarios + 3 synthetic shocks
 
-### Advanced Feature Engineering (MVP5)
-- **30+ technical indicators** - Stochastic, Williams %R, CCI, MFI, Ichimoku, Keltner, Donchian, Aroon, KST, and more
-- **Lookahead bias detection** - Automatically detect centered windows, future shifts, full-sample statistics
-- **LLM temporal safety** - Canary questions to prevent temporal contamination in LLM-based features
+### Real Market Data Only
 
-### Strategy Generation (MVP6)
-- **Genetic programming** - DEAP-based evolution (population 100, generations 50)
-- **Strategy factory** - Generate 100+ candidates through evolution + template variations
-- **Automated fitness scoring** - Integrate with backtesting for objective evaluation
+- **No synthetic data, no placeholders** - all data from yfinance
+- **Parquet caching** with automatic expiry and metadata tracking
+- **Bi-temporal awareness** tracks observation, release, and transaction timestamps
 
-### Backtesting (MVP7)
-- **Vectorized engine** - Screen 10,000+ strategies at 10M+ bars/sec
-- **Event-driven engine** - Realistic execution with queue models, 50ms latency, partial fills
-- **Implementation shortfall** - Measure vectorized vs realistic performance gap (<30% threshold)
+---
 
-### Statistical Validation (MVP2-3)
-- **Deflated Sharpe Ratio** - Account for multiple testing (10,000 trials → DSR > 0.95)
-- **Combinatorially Purged CV** - 12,870 train/test combinations, PBO < 0.05
-- **Hansen's SPA test** - Statistical superiority vs benchmarks
-- **Stress testing** - 3 historical + 3 synthetic scenarios
-- **Walk-forward analysis** - Rolling/anchored windows with IS/OOS validation
-- **Regime detection** - Adaptive thresholds for normal/trending/high_vol/crisis
-
-### Production Monitoring (MVP2)
-- **CUSUM degradation detection** - Real-time monitoring with <5 day detection time
-- **Performance attribution** - Regime-based breakdown, monthly/yearly analysis
-- **Trade analytics** - Win rate, profit factor, expectancy, consecutive wins/losses
-
-## 🚀 Quick Start
-
-### Installation
+## Quick Start
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/alpha-forge.git
+# Clone and setup
+git clone https://github.com/alphaforge/alpha-forge
 cd alpha-forge
 
-# Create virtual environment
-uv venv
-source .venv/bin/activate
+# Start the full stack (backend + frontend)
+./start.sh
 
-# Install with development dependencies
-uv pip install -e ".[dev]"
+# Open in browser
+open http://localhost:3000
 ```
 
-### Basic Example
+The `start.sh` script:
+- Creates a Python virtual environment if needed
+- Installs all dependencies
+- Starts the FastAPI backend on port 8000
+- Starts the Next.js frontend on port 3000
+- Logs to `logs/backend.log` and `logs/frontend.log`
+
+For interactive development with split-screen logs:
+```bash
+./start-dev.sh  # Uses tmux
+```
+
+Stop all services:
+```bash
+./stop.sh
+```
+
+---
+
+## Architecture
+
+AlphaForge uses a **5-layer architecture** with strict separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 5: VALIDATION PIPELINE                                │
+│ DSR | CPCV | PBO | Hansen's SPA | Stress Testing           │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 4: BACKTESTING ENGINE                                 │
+│ Vectorized (numpy) | Event-Driven | Market Impact Model    │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 3: STRATEGY DISCOVERY                                 │
+│ Expression Trees | NSGA-III | Genetic Operators            │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 2: FEATURE ENGINEERING                                │
+│ Technical Indicators | Lookahead Detection | PIT Safety    │
+├─────────────────────────────────────────────────────────────┤
+│ Layer 1: DATA LAYER                                         │
+│ MarketDataLoader | Parquet Cache | Bi-Temporal Schema      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Technology Stack
+
+**Backend (Python 3.10+)**
+- FastAPI + Uvicorn for async REST API
+- NumPy + Pandas for vectorized computation
+- Polars for high-performance data operations
+- PyArrow for Parquet serialization
+- yfinance for market data
+- MLflow for experiment tracking
+
+**Frontend (TypeScript)**
+- Next.js 14 with App Router
+- React 18 with Hooks
+- Tailwind CSS for styling
+- Framer Motion for animations
+- Recharts for data visualization
+
+---
+
+## Installation
+
+### Prerequisites
+
+- Python 3.10 or higher
+- Node.js 18 or higher (for frontend)
+- Git
+
+### Backend Installation
+
+```bash
+# Using uv (recommended)
+export PATH="$HOME/.local/bin:$PATH"
+uv venv && source .venv/bin/activate
+uv pip install -e ".[dev]"
+
+# Or using pip
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+### Frontend Installation
+
+```bash
+cd frontend
+npm install
+```
+
+### Verify Installation
+
+```bash
+# Run tests
+pytest
+
+# Check types
+mypy src/alphaforge/
+
+# Lint
+ruff check src/ tests/
+```
+
+---
+
+## Usage
+
+### Web Interface
+
+The web interface provides a terminal-inspired dashboard for:
+
+1. **Strategy Discovery**: Run NSGA-III evolution with configurable objectives
+2. **Genetic Factory**: Template-based genetic optimization
+3. **Validation Runner**: Validate individual strategies
+4. **Pipeline Statistics**: View accumulated validation metrics
+5. **Strategy List**: Browse all validated strategies
+
+Access at `http://localhost:3000` after running `./start.sh`.
+
+### Command Line Interface
+
+```bash
+# Load market data
+alphaforge data SPY --start 2020-01-01
+
+# Run backtest with a template strategy
+alphaforge backtest SPY --template sma_crossover
+
+# Full validation suite
+alphaforge validate SPY --template sma_crossover \
+    --n-trials 100 \
+    --run-cpcv \
+    --run-spa \
+    --run-stress
+
+# List available strategy templates
+alphaforge templates
+```
+
+### Python API
+
+#### Loading Market Data
 
 ```python
-from alphaforge import MarketDataLoader, BacktestEngine, ValidationPipeline
-from alphaforge.strategy.templates import StrategyTemplates
+from alphaforge.data.loader import MarketDataLoader
 
-# 1. Load real market data (no synthetic data!)
 loader = MarketDataLoader()
-data = loader.load("SPY", start="2020-01-01", end="2024-01-01")
+data = loader.load("SPY", start="2020-01-01", end="2023-12-31")
 
-# 2. Create or generate a strategy
-strategy = StrategyTemplates.sma_crossover(fast_period=20, slow_period=50)
+print(f"Loaded {len(data.df)} trading days")
+print(f"Columns: {list(data.df.columns)}")
+```
 
-# 3. Backtest with vectorized engine
-engine = BacktestEngine()
+#### Running a Backtest
+
+```python
+from alphaforge.backtest.engine import BacktestEngine
+from alphaforge.strategy.templates import StrategyTemplates
+from alphaforge.data.loader import MarketDataLoader
+
+# Load data
+loader = MarketDataLoader()
+data = loader.load("SPY", start="2020-01-01", end="2023-12-31")
+
+# Get strategy template
+strategy = StrategyTemplates.sma_crossover()
+
+# Run backtest
+engine = BacktestEngine(initial_capital=100000)
 result = engine.run(strategy, data)
 
+# View results
+print(result.summary())
 print(f"Sharpe Ratio: {result.metrics.sharpe_ratio:.2f}")
-print(f"Annual Return: {result.metrics.annualized_return:.1%}")
 print(f"Max Drawdown: {result.metrics.max_drawdown:.1%}")
+print(f"Total Return: {result.metrics.total_return:.1%}")
 ```
 
-### Advanced: Full Validation Pipeline
+#### Full Validation Pipeline
 
 ```python
-from alphaforge.validation import ValidationPipeline
+from alphaforge.validation.pipeline import ValidationPipeline
+from alphaforge.strategy.templates import StrategyTemplates
+from alphaforge.data.loader import MarketDataLoader
 
-# Run comprehensive validation
+# Load data
+loader = MarketDataLoader()
+data = loader.load("SPY", start="2020-01-01", end="2023-12-31")
+spy_benchmark = loader.load("SPY", start="2020-01-01", end="2023-12-31")
+
+# Create strategy
+strategy = StrategyTemplates.rsi_mean_reversion()
+
+# Run full validation
 pipeline = ValidationPipeline()
-validation = pipeline.validate(
+result = pipeline.validate(
     strategy=strategy,
     data=data,
-    n_trials=1000,        # For DSR multiple testing correction
-    run_cpcv=True,        # Combinatorially Purged CV
-    run_spa=True,         # Hansen's SPA test
-    run_stress=True,      # Stress testing
-    benchmark_returns=spy_returns,
+    n_trials=100,           # Account for multiple testing
+    run_cpcv=True,          # Combinatorially Purged CV
+    run_spa=True,           # Hansen's SPA test
+    run_stress=True,        # Stress testing
+    benchmark_returns=spy_benchmark.df['close'].pct_change(),
+    benchmark_name="SPY",
 )
 
 # Check results
-if validation.auto_accept:
-    print("✓ Strategy meets strict thresholds (DSR > 0.98, Sharpe > 1.5, PBO < 0.02)")
-elif validation.passed:
-    print("✓ Strategy meets minimum thresholds (requires committee review)")
-else:
-    print("✗ Strategy failed validation")
+print(result.summary())
+print(f"Passed: {result.passed}")
+print(f"Auto-Accept: {result.auto_accept}")
 ```
 
-### Generate Strategy Candidates
+---
+
+## Strategy Discovery System
+
+The discovery system uses **multi-objective genetic programming** to evolve trading strategies represented as expression trees.
+
+### Running Discovery
 
 ```python
-from alphaforge.factory import StrategyFactory
+from alphaforge.discovery import DiscoveryOrchestrator, DiscoveryConfig
+from alphaforge.data.loader import MarketDataLoader
 
-def fitness_function(strategy):
-    """Evaluate strategy fitness (Sharpe ratio from backtest)"""
-    result = engine.run(strategy, data)
-    return result.metrics.sharpe_ratio
+# Load data
+loader = MarketDataLoader()
+data = loader.load("SPY", start="2020-01-01", end="2023-12-31")
 
-# Generate candidates using genetic evolution
-factory = StrategyFactory(fitness_function=fitness_function)
-pool = factory.generate()
-
-# Get top 10 strategies
-top_strategies = factory.get_top_strategies(n=10)
-for strategy, fitness in top_strategies:
-    print(f"{strategy.name}: Sharpe = {fitness:.2f}")
-```
-
-### Event-Driven Backtesting
-
-```python
-from alphaforge.backtest import EventDrivenEngine, calculate_implementation_shortfall
-
-# Run event-driven backtest (realistic execution)
-event_engine = EventDrivenEngine()
-event_result = event_engine.run(strategy, data)
-
-# Compare to vectorized backtest
-vector_result = BacktestEngine().run(strategy, data)
-shortfall = calculate_implementation_shortfall(vector_result, event_result)
-
-print(f"Vectorized Sharpe: {shortfall['vectorized_sharpe']:.2f}")
-print(f"Event-Driven Sharpe: {shortfall['event_driven_sharpe']:.2f}")
-print(f"Implementation Shortfall: {shortfall['sharpe_shortfall']:.1%}")
-print(f"Passed Threshold (<30%): {shortfall['passed_threshold']}")
-```
-
-### Bi-Temporal Data Queries
-
-```python
-from alphaforge.data import BiTemporalStore, ALFREDClient, ALFREDSync
-from datetime import datetime, date
-
-# Setup bi-temporal store
-store = BiTemporalStore()
-client = ALFREDClient()
-sync = ALFREDSync(client, store)
-
-# Sync Federal Reserve data
-sync.daily_sync(vintage_date=date(2024, 1, 15))
-
-# Point-in-time query: "What did we know on this date?"
-gdp = store.get_pit_value(
-    entity_id="US_MACRO",
-    indicator_name="GDP",
-    observation_date=date(2023, 12, 31),  # Q4 2023
-    as_of_date=datetime(2024, 1, 15),     # What was known on Jan 15, 2024
+# Configure discovery
+config = DiscoveryConfig(
+    population_size=200,      # Population per generation
+    n_generations=100,        # Evolution iterations
+    n_objectives=4,           # Sharpe, MaxDD, Turnover, Complexity
+    min_sharpe=0.5,           # Minimum threshold for validation
+    max_turnover=0.2,         # Maximum daily turnover
+    max_complexity=0.7,       # Maximum complexity score
+    validation_split=0.3,     # 30% held out for validation
+    seed=42,                  # Reproducibility
 )
-print(f"Q4 2023 GDP as of Jan 15, 2024: ${gdp:.0f}B")
+
+# Run discovery
+orchestrator = DiscoveryOrchestrator(data.df, config)
+result = orchestrator.discover()
+
+# Access results
+print(f"Pareto front size: {len(result.pareto_front)}")
+print(f"Factor zoo size: {len(result.factor_zoo)}")
+print(f"Generations completed: {result.n_generations}")
+
+# Best by each objective
+for obj, ind in result.best_by_objective.items():
+    print(f"Best {obj}: {ind.tree.formula}")
+    print(f"  Fitness: {ind.fitness}")
 ```
 
-### Lookahead Bias Detection
+### Expression Tree Operators
+
+The system includes **35+ strongly-typed operators**:
+
+**Temporal Operators** (trailing windows only - no lookahead):
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `delay(x, d)` | Lag series by d periods | `delay(close, 5)` |
+| `ts_mean(x, w)` | Rolling mean | `ts_mean(close, 20)` |
+| `ts_std(x, w)` | Rolling standard deviation | `ts_std(returns, 20)` |
+| `ts_rank(x, w)` | Rolling percentile rank | `ts_rank(close, 10)` |
+| `ts_corr(x, y, w)` | Rolling correlation | `ts_corr(close, volume, 20)` |
+| `ts_cov(x, y, w)` | Rolling covariance | `ts_cov(close, volume, 20)` |
+| `ts_min(x, w)` | Rolling minimum | `ts_min(low, 20)` |
+| `ts_max(x, w)` | Rolling maximum | `ts_max(high, 20)` |
+| `ts_argmax(x, w)` | Days since maximum | `ts_argmax(close, 20)` |
+| `ts_argmin(x, w)` | Days since minimum | `ts_argmin(close, 20)` |
+
+**Cross-Sectional Operators**:
+| Operator | Description |
+|----------|-------------|
+| `rank(x)` | Percentile rank |
+| `scale(x)` | Normalize to sum to 1 |
+| `zscore(x)` | Standardize (mean=0, std=1) |
+
+**Arithmetic Operators**:
+| Operator | Description |
+|----------|-------------|
+| `add`, `sub`, `mul`, `div` | Binary operations |
+| `abs`, `neg`, `log`, `sqrt`, `sign` | Unary operations |
+
+**Logical Operators**:
+| Operator | Description |
+|----------|-------------|
+| `gt`, `lt`, `gte`, `lte`, `eq` | Comparisons |
+| `and_`, `or_`, `not_` | Boolean logic |
+| `if_else` | Conditional |
+
+### Example Discovered Formulas
 
 ```python
-from alphaforge.features import LookaheadDetector
+# Momentum with volatility adjustment
+rank(ts_mean(close, 20) / ts_std(close, 20))
 
-def my_feature_function(df):
-    """My custom feature computation"""
-    result = df.copy()
-    result['sma'] = df['close'].rolling(20).mean()  # Valid: trailing window
-    result['zscore'] = (df['close'] - df['close'].rolling(252).mean()) / df['close'].rolling(252).std()  # Valid
-    return result
+# Mean reversion signal
+rank(delay(close, 1) - ts_mean(close, 10))
 
-# Validate feature function
-detector = LookaheadDetector()
-detections = detector.check_function(my_feature_function, data.df)
+# Volume-price correlation
+ts_corr(rank(close), rank(volume), 20)
 
-if not any(d.has_bias for d in detections):
-    print("✓ No lookahead bias detected")
-else:
-    for detection in detections:
-        if detection.has_bias:
-            print(f"✗ {detection.message}")
+# Multi-factor combination
+mul(rank(ts_mean(close, 50)), neg(ts_std(close, 20)))
 ```
 
-## 📊 Architecture
+---
 
-AlphaForge implements a 7-layer defense architecture:
+## Validation Pipeline
 
+### Validation Stages
+
+1. **Initial Backtest**: Calculate basic performance metrics
+2. **DSR Screening**: Multiple testing correction for all strategies tested
+3. **CPCV Validation**: 12,870 train/test combinations with temporal purging
+4. **PBO Calculation**: Probability that strategy is overfit
+5. **SPA Test** (optional): Statistical significance vs benchmark
+6. **Stress Testing** (optional): Historical and synthetic scenarios
+
+### Validation Thresholds
+
+| Metric | Minimum (Deploy) | Auto-Accept |
+|--------|------------------|-------------|
+| PBO | < 0.05 | < 0.02 |
+| DSR | > 0.95 | > 0.98 |
+| Sharpe | > 1.0 | > 1.5 |
+| Stress Pass Rate | ≥ 80% | ≥ 80% |
+| SPA p-value | < 0.05 | < 0.05 |
+
+### Stress Scenarios
+
+**Historical Replays**:
+- 2008 Financial Crisis (Sep-Dec 2008)
+- 2020 COVID Crash (Feb-Mar 2020)
+- 2022 Rate Hikes (Jan-Oct 2022)
+
+**Synthetic Shocks**:
+- Correlation Spike (all assets correlate at 0.95)
+- Volatility 3x (triple normal volatility)
+- Liquidity Drain (5x spreads, 80% less depth)
+
+---
+
+## Backtesting Engine
+
+AlphaForge provides two backtesting modes:
+
+### Vectorized Backtesting (Fast)
+
+```python
+from alphaforge.backtest.engine import BacktestEngine
+
+engine = BacktestEngine(
+    initial_capital=100000,
+    commission_pct=0.001,   # 0.1% commission
+    slippage_pct=0.0005,    # 0.05% slippage
+)
+
+result = engine.run(strategy, data)
 ```
-Layer 7: Governance & Monitoring (CUSUM, MLflow, SHAP)
-Layer 6: Production Execution (Live, Shadow, Paper Trading)
-Layer 5: Statistical Validation (CPCV, PBO, DSR, SPA, Stress)
-Layer 4: Backtesting (Vectorized + Event-Driven)
-Layer 3: Strategy Factory (Genetic Programming, Templates)
-Layer 2: Feature Store (30+ Indicators, Lookahead Detection)
-Layer 1: Bi-Temporal Data Lake (Point-in-Time, Survivorship-Free)
+
+- **Performance**: Millions of bars per second
+- **Use case**: Screening large numbers of strategies
+- **Trade-off**: No detailed trade tracking
+
+### Event-Driven Backtesting (Realistic)
+
+```python
+from alphaforge.backtest.event_driven import EventDrivenEngine
+
+engine = EventDrivenEngine(
+    initial_capital=100000,
+    latency_ms=50,           # Simulated execution latency
+    partial_fills=True,      # Allow partial order fills
+)
+
+result = engine.run(strategy, data)
 ```
 
-## 🧪 Testing
+- **Features**: Queue position modeling, partial fills, market impact
+- **Use case**: Final validation before deployment
+- **Metric**: Implementation shortfall < 30%
 
-AlphaForge has 300+ tests ensuring production-grade quality:
+### Market Impact Model (Almgren-Chriss)
+
+```python
+Total Impact = Permanent + Temporary
+
+Permanent = 0.314 * sqrt(volatility) * (order_size / daily_volume)
+Temporary = 0.142 * sqrt(volatility) * (order_size / daily_volume)^0.6 / time_horizon
+```
+
+---
+
+## Technical Indicators
+
+All indicators use **trailing windows only** (`center=False`) to prevent lookahead bias.
+
+### Available Indicators
+
+```python
+from alphaforge.features.technical import TechnicalIndicators
+
+# Compute all indicators at once
+df = TechnicalIndicators.compute_all(data.df)
+
+# Or compute individually
+sma_20 = TechnicalIndicators.sma(df['close'], period=20)
+rsi_14 = TechnicalIndicators.rsi(df['close'], period=14)
+macd, signal, hist = TechnicalIndicators.macd(df['close'])
+upper, middle, lower = TechnicalIndicators.bollinger_bands(df['close'])
+```
+
+| Category | Indicators |
+|----------|------------|
+| **Trend** | SMA, EMA, MACD |
+| **Momentum** | RSI, Stochastic, Williams %R, Momentum |
+| **Volatility** | ATR, Bollinger Bands, Rolling Volatility |
+| **Trend Strength** | ADX |
+| **Volume** | OBV, Volume SMA Ratio, VWAP |
+
+### Point-in-Time Safety
+
+```python
+# FORBIDDEN: Full-sample statistics (lookahead)
+df['z_score'] = (df['price'] - df['price'].mean()) / df['price'].std()
+
+# REQUIRED: Rolling/expanding only
+df['z_score'] = df['price'].rolling(252).apply(
+    lambda x: (x.iloc[-1] - x.mean()) / x.std()
+)
+
+# FORBIDDEN: Centered windows (lookahead)
+df['ma'] = df['price'].rolling(20, center=True).mean()
+
+# REQUIRED: Trailing windows only
+df['ma'] = df['price'].rolling(20, center=False).mean()
+```
+
+---
+
+## API Reference
+
+### REST Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Health check |
+| `/api/validate` | POST | Start strategy validation |
+| `/api/validate/{id}` | GET | Get validation result |
+| `/api/factory` | POST | Start strategy factory |
+| `/api/factory/{id}` | GET | Get factory result |
+| `/api/discovery` | POST | Start NSGA-III discovery |
+| `/api/discovery/{id}` | GET | Get discovery result |
+| `/api/strategies` | GET | List all validated strategies |
+| `/api/templates` | GET | List strategy templates |
+| `/api/metrics/latest` | GET | Get latest validation metrics |
+| `/api/pipeline-stats` | GET | Get pipeline statistics |
+| `/api/system/status` | GET | Get system status |
+
+### Example API Calls
+
+```bash
+# Start a validation
+curl -X POST http://localhost:8000/api/validate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "SPY",
+    "template": "sma_crossover",
+    "start_date": "2020-01-01",
+    "end_date": "2023-12-31",
+    "n_trials": 100,
+    "run_cpcv": true
+  }'
+
+# Start discovery
+curl -X POST http://localhost:8000/api/discovery \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "SPY",
+    "population_size": 100,
+    "n_generations": 20,
+    "n_objectives": 4
+  }'
+
+# Get pipeline stats
+curl http://localhost:8000/api/pipeline-stats
+```
+
+---
+
+## Configuration
+
+### ValidationThresholds
+
+```python
+from alphaforge.validation.pipeline import ValidationThresholds
+
+thresholds = ValidationThresholds(
+    # DSR thresholds
+    dsr_confidence=0.95,           # Minimum DSR for passing
+
+    # PBO thresholds
+    pbo_deploy=0.05,               # Maximum PBO to deploy
+    pbo_auto_accept=0.02,          # Maximum PBO for auto-accept
+
+    # Sharpe thresholds
+    min_sharpe=1.0,                # Minimum Sharpe for deployment
+    min_sharpe_auto=1.5,           # Minimum for auto-accept
+
+    # SPA test
+    spa_pvalue_threshold=0.05,     # P-value threshold
+    spa_bootstrap_reps=1000,       # Bootstrap replications
+
+    # Stress testing
+    stress_pass_rate=0.80,         # Minimum pass rate (80%)
+    stress_min_sharpe=0.0,         # Minimum Sharpe during stress
+    stress_max_drawdown=0.50,      # Maximum drawdown during stress
+
+    # CPCV
+    cpcv_n_splits=16,              # Number of time splits
+    cpcv_test_splits=8,            # Test splits per combination
+    cpcv_embargo_pct=0.02,         # Embargo between train/test
+    cpcv_max_combinations=1000,    # Limit for speed
+)
+```
+
+### DiscoveryConfig
+
+```python
+from alphaforge.discovery import DiscoveryConfig
+
+config = DiscoveryConfig(
+    population_size=200,           # Individuals per generation
+    n_generations=100,             # Evolution iterations
+    n_objectives=4,                # Optimization objectives
+    crossover_prob=0.9,            # Crossover probability
+    mutation_prob=0.3,             # Mutation probability
+    diversity_injection=20,        # Inject diversity every N gens
+    min_sharpe=0.5,                # Minimum Sharpe threshold
+    max_turnover=0.2,              # Maximum turnover
+    max_complexity=0.7,            # Maximum complexity score
+    validation_split=0.3,          # Validation data fraction
+    seed=None,                     # Random seed
+)
+```
+
+---
+
+## Testing
+
+AlphaForge has **300+ tests** covering all major components.
 
 ```bash
 # Run all tests
 pytest
 
-# Run specific test suite
-pytest tests/test_validation/test_dsr.py -v
-
 # Run with coverage
 pytest --cov=alphaforge --cov-report=term-missing
 
-# Lint and format
-ruff check src/ tests/
-ruff format src/ tests/
+# Run specific module
+pytest tests/test_validation/ -v
 
-# Type check
-mypy src/alphaforge/
+# Run specific test file
+pytest tests/test_discovery/test_nsga3.py -v
+
+# Skip slow tests
+pytest -m "not slow"
+
+# Run integration tests only
+pytest -m integration
 ```
 
-## 📈 Validation Thresholds
+### Test Fixtures
 
-| Metric | Minimum (Deploy) | Auto-Accept | Crisis Regime |
-|--------|------------------|-------------|---------------|
-| **PBO** | < 0.05 | < 0.02 | < 0.01 |
-| **DSR** | > 0.95 | > 0.98 | > 0.99 |
-| **Sharpe** | > 1.0 | > 1.5 | > 2.0 |
-| **Stress Pass Rate** | ≥ 80% | ≥ 80% | ≥ 80% |
-| **Implementation Shortfall** | < 30% | < 20% | < 20% |
+All tests use **real market data** (cached for reproducibility):
 
-**Auto-Accept**: Strategy deploys automatically without committee review
-**Minimum**: Strategy may deploy with committee approval
-**Crisis**: Tightened thresholds during market stress
-
-## 🗺️ Roadmap
-
-- ✅ **MVP1-3**: Core platform, validation, optimization (Complete)
-- ✅ **MVP4**: Bi-temporal data architecture (Complete)
-- ✅ **MVP5**: Advanced feature engineering (Complete)
-- ✅ **MVP6**: Strategy factory & genetic programming (Complete)
-- ✅ **MVP7**: Event-driven backtesting (Complete)
-- ⏳ **MVP8**: Production infrastructure (Kubernetes, Iceberg, Kafka)
-- ⏳ **MVP9**: Production execution (Shadow → Paper → Live)
-- ⏳ **MVP10**: Advanced monitoring (Prometheus, Grafana, SHAP)
-- ⏳ **MVP11**: Risk management framework
-- ⏳ **MVP12**: Testing, documentation, hardening
-
-See [MVP_ROADMAP.md](MVP_ROADMAP.md) for detailed implementation plan.
-
-## 📚 Documentation
-
-- **[CLAUDE.md](CLAUDE.md)** - Development guide and code patterns
-- **[AlphaForge_System_Specification.md](AlphaForge_System_Specification.md)** - Complete system design
-- **[MVP_ROADMAP.md](MVP_ROADMAP.md)** - MVP4-12 implementation plan
-
-## 🤝 Contributing
-
-AlphaForge follows strict development practices:
-
-1. **No synthetic data** - All tests use real market data or realistic mocks
-2. **Type hints required** - Full mypy strict mode compliance
-3. **Test coverage** - New features require comprehensive tests
-4. **No lookahead bias** - All features validated for temporal correctness
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) for details
-
-## ⚠️ Disclaimer
-
-This software is for educational and research purposes only. Past performance does not guarantee future results. Trading involves substantial risk of loss. Always consult with a qualified financial advisor before making investment decisions.
+```python
+@pytest.fixture(scope="session")
+def spy_data():
+    """Real SPY data from 2020-2023."""
+    loader = MarketDataLoader()
+    return loader.load("SPY", start="2020-01-01", end="2023-12-31")
+```
 
 ---
 
-**Built with**: Python 3.10+ | Pandas | NumPy | DEAP | Optuna | TA-Lib
+## Project Structure
 
-**Status**: MVP7 Complete - Production-ready systematic trading platform
+```
+alpha-forge/
+├── src/alphaforge/
+│   ├── data/                    # Layer 1: Data loading
+│   │   ├── loader.py            # MarketDataLoader (yfinance + cache)
+│   │   ├── schema.py            # OHLCVData schema
+│   │   ├── bitemporal.py        # Bi-temporal 3-timestamp schema
+│   │   ├── alfred.py            # Federal Reserve vintage data
+│   │   ├── universe.py          # Survivorship bias prevention
+│   │   └── quality.py           # Data quality validation
+│   │
+│   ├── features/                # Layer 2: Feature engineering
+│   │   ├── technical.py         # 15+ technical indicators
+│   │   ├── advanced_technical.py # 30+ advanced indicators
+│   │   ├── lookahead.py         # Lookahead bias detection
+│   │   └── llm_safety.py        # LLM temporal safety
+│   │
+│   ├── strategy/                # Strategy representation
+│   │   ├── genome.py            # StrategyGenome
+│   │   ├── templates.py         # Pre-built templates
+│   │   └── signals.py           # Signal generation
+│   │
+│   ├── discovery/               # Layer 3: Strategy discovery
+│   │   ├── expression/          # Expression trees
+│   │   │   ├── tree.py          # ExpressionTree class
+│   │   │   ├── nodes.py         # AST nodes
+│   │   │   ├── types.py         # Operator signatures
+│   │   │   └── compiler.py      # Compile to pandas
+│   │   ├── operators/           # Genetic operators
+│   │   │   ├── crossover.py     # Subtree/uniform crossover
+│   │   │   ├── mutation.py      # 4 mutation types
+│   │   │   └── selection.py     # Tournament/Pareto selection
+│   │   ├── evolution/           # Evolution engine
+│   │   │   └── nsga3.py         # NSGA-III optimizer
+│   │   └── orchestrator.py      # Main discovery interface
+│   │
+│   ├── backtest/                # Layer 4: Backtesting
+│   │   ├── engine.py            # Vectorized backtesting
+│   │   ├── event_driven.py      # Event-driven backtest
+│   │   ├── metrics.py           # Performance metrics
+│   │   ├── portfolio.py         # Portfolio management
+│   │   ├── impact.py            # Almgren-Chriss impact
+│   │   └── trades.py            # Trade analysis
+│   │
+│   ├── validation/              # Layer 5: Statistical validation
+│   │   ├── pipeline.py          # ValidationPipeline
+│   │   ├── dsr.py               # Deflated Sharpe Ratio
+│   │   ├── cpcv.py              # Combinatorially Purged CV
+│   │   ├── pbo.py               # Probability of Overfitting
+│   │   ├── spa.py               # Hansen's SPA test
+│   │   ├── stress.py            # Stress testing
+│   │   ├── regime.py            # Regime detection
+│   │   └── walk_forward.py      # Walk-forward analysis
+│   │
+│   ├── optimization/            # Parameter optimization
+│   │   ├── grid.py              # Grid search
+│   │   ├── random.py            # Random search
+│   │   └── optuna.py            # Bayesian optimization
+│   │
+│   ├── monitoring/              # Production monitoring
+│   │   └── cusum.py             # CUSUM degradation detection
+│   │
+│   ├── api/                     # REST API
+│   │   └── server.py            # FastAPI application
+│   │
+│   └── cli.py                   # Command-line interface
+│
+├── frontend/                    # Next.js frontend
+│   ├── app/                     # App router pages
+│   ├── components/              # React components
+│   │   ├── StrategyDiscovery.tsx
+│   │   ├── ParetoFrontViz.tsx
+│   │   ├── FactorZoo.tsx
+│   │   ├── StrategyFactory.tsx
+│   │   ├── ValidationRunner.tsx
+│   │   └── ...
+│   └── lib/
+│       └── api.ts               # Typed API client
+│
+├── tests/                       # Test suite (300+ tests)
+│   ├── test_data/
+│   ├── test_features/
+│   ├── test_discovery/
+│   ├── test_backtest/
+│   ├── test_validation/
+│   └── conftest.py              # Shared fixtures
+│
+├── start.sh                     # Start full stack (background)
+├── start-dev.sh                 # Start full stack (tmux)
+├── stop.sh                      # Stop all services
+├── pyproject.toml               # Python project config
+└── CLAUDE.md                    # Development guidelines
+```
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Ensure all tests pass: `pytest`
+4. Ensure code quality: `ruff check src/ tests/ && mypy src/alphaforge/`
+5. Submit a pull request
+
+### Code Standards
+
+- Python 3.10+ with type hints (mypy strict mode)
+- No synthetic/fake data - use real market data via yfinance
+- All indicators use trailing windows only (no lookahead)
+- Test coverage expected for new features

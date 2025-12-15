@@ -5,6 +5,8 @@ Breaks down returns by regime, time period, and other factors to understand
 where strategy performance comes from.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 import numpy as np

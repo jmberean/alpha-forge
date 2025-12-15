@@ -4,6 +4,8 @@ MLflow experiment tracking integration.
 Tracks all strategy evaluations for reproducibility and audit trails.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os

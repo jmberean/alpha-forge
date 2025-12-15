@@ -16,7 +16,7 @@ Based on research from:
 from alphaforge.discovery.expression.tree import ExpressionTree
 from alphaforge.discovery.expression.types import DataType, NodeType
 from alphaforge.discovery.evolution.nsga3 import NSGA3Optimizer, NSGA3Config
-from alphaforge.discovery.orchestrator import DiscoveryOrchestrator
+from alphaforge.discovery.orchestrator import DiscoveryOrchestrator, DiscoveryConfig
 
 __all__ = [
     "ExpressionTree",
@@ -25,4 +25,5 @@ __all__ = [
     "NSGA3Optimizer",
     "NSGA3Config",
     "DiscoveryOrchestrator",
+    "DiscoveryConfig",
 ]

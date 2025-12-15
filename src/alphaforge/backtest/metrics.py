@@ -4,6 +4,8 @@ Performance metrics for backtesting.
 All metrics are computed on returns series to ensure consistency.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 import numpy as np

@@ -10,17 +10,21 @@ Implements NSGA-III for evolving expression trees with multiple objectives:
 from alphaforge.discovery.evolution.nsga3 import (
     NSGA3Config,
     NSGA3Optimizer,
-    ObjectiveValues,
+    NSGA3Result,
 )
 from alphaforge.discovery.evolution.population import (
     Population,
+    PopulationStats,
     create_initial_population,
+    inject_diversity,
 )
 
 __all__ = [
     "NSGA3Config",
     "NSGA3Optimizer",
-    "ObjectiveValues",
+    "NSGA3Result",
     "Population",
+    "PopulationStats",
     "create_initial_population",
+    "inject_diversity",
 ]

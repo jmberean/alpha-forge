@@ -4,6 +4,8 @@ Genetic programming for strategy evolution using DEAP.
 Evolves trading strategies through mutation, crossover, and selection.
 """
 
+from __future__ import annotations
+
 import random
 from dataclasses import dataclass
 from typing import Callable

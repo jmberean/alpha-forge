@@ -9,6 +9,8 @@ Reference:
 - Empirical parameters from Gatheral (2010)
 """
 
+from __future__ import annotations
+
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Protocol

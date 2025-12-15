@@ -4,6 +4,8 @@ Portfolio simulation for backtesting.
 Tracks positions, cash, and portfolio value over time.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 

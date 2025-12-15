@@ -4,6 +4,8 @@ Base optimizer interface and parameter space definition.
 Provides foundation for strategy parameter optimization using different algorithms.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable

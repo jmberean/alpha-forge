@@ -11,6 +11,8 @@ By testing ALL C(N, K) combinations with purging, we get a robust
 estimate of out-of-sample performance.
 """
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed

@@ -5,6 +5,8 @@ ALFRED provides vintage data for economic indicators, allowing point-in-time
 queries that respect when data was actually released (not just observed).
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any

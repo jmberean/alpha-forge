@@ -19,6 +19,7 @@ from alphaforge.strategy.templates import StrategyTemplates
 from alphaforge.validation.pipeline import ValidationPipeline
 from alphaforge.factory import StrategyFactory
 from alphaforge.factory.orchestrator import FactoryConfig
+from alphaforge.discovery import DiscoveryOrchestrator, DiscoveryConfig
 
 # Create FastAPI app
 app = FastAPI(
@@ -43,6 +44,11 @@ validation_status = {}
 # Storage for factory runs
 factory_results = {}
 factory_status = {}
+
+# Storage for discovery runs
+discovery_results = {}
+discovery_status = {}
+discovery_logs = {}  # Separate storage for live logs
 
 # Pipeline statistics (accumulated from runs)
 pipeline_stats = {
@@ -103,6 +109,25 @@ class FactoryRequest(BaseModel):
 
 class FactoryResponse(BaseModel):
     factory_id: str
+    status: str
+    message: str
+
+
+class DiscoveryRequest(BaseModel):
+    symbol: str = "SPY"
+    start_date: str = "2020-01-01"
+    end_date: str = "2023-12-31"
+    population_size: int = 100
+    n_generations: int = 20
+    n_objectives: int = 4
+    min_sharpe: float = 0.5
+    max_turnover: float = 0.2
+    max_complexity: float = 0.7
+    validation_split: float = 0.3
+
+
+class DiscoveryResponse(BaseModel):
+    discovery_id: str
     status: str
     message: str
 
@@ -352,6 +377,140 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
         factory_status[factory_id] = "failed"
 
 
+# Helper function to add log and store immediately
+def add_discovery_log(discovery_id: str, message: str):
+    """Add a log message and store it immediately for live updates."""
+    timestamp = datetime.now().strftime('%H:%M:%S')
+    log_entry = f"[{timestamp}] {message}"
+    if discovery_id not in discovery_logs:
+        discovery_logs[discovery_id] = []
+    discovery_logs[discovery_id].append(log_entry)
+    return log_entry
+
+
+# Helper function to run discovery
+async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
+    """Background task to run strategy discovery."""
+    global pipeline_stats
+
+    # Initialize logs storage
+    discovery_logs[discovery_id] = []
+
+    def log(msg: str):
+        add_discovery_log(discovery_id, msg)
+
+    try:
+        discovery_status[discovery_id] = "running"
+        log("Starting Strategy Discovery System")
+        log("Multi-Objective Genetic Programming (NSGA-III)")
+
+        # Load data
+        log(f"Loading market data for {request.symbol}...")
+        loader = MarketDataLoader()
+        data = loader.load(request.symbol, start=request.start_date, end=request.end_date)
+        log(f"✓ Loaded {len(data.df)} trading days")
+
+        # Configure discovery
+        log("Configuring discovery system...")
+        log(f"  Population: {request.population_size}")
+        log(f"  Generations: {request.n_generations}")
+        log(f"  Objectives: {request.n_objectives} (Sharpe, MaxDD, Turnover, Complexity)")
+        log(f"  Validation split: {request.validation_split:.0%}")
+
+        config = DiscoveryConfig(
+            population_size=request.population_size,
+            n_generations=request.n_generations,
+            n_objectives=request.n_objectives,
+            min_sharpe=request.min_sharpe,
+            max_turnover=request.max_turnover,
+            max_complexity=request.max_complexity,
+            validation_split=request.validation_split,
+        )
+
+        # Run discovery with progress callback
+        log("Initializing NSGA-III optimizer...")
+
+        def on_generation(gen: int, stats: dict):
+            """Callback for each generation."""
+            fitness = stats.get("fitness", {})
+            best_sharpe = fitness.get("max", {}).get("sharpe", 0) if isinstance(fitness.get("max"), dict) else 0
+            pareto_size = stats.get("pareto_front_size", 0)
+            log(f"Gen {gen:3d}/{request.n_generations} | Pareto: {pareto_size} | Unique: {stats.get('unique_formulas', 0)}")
+
+        log("Running multi-objective evolution...")
+        orchestrator = DiscoveryOrchestrator(data, config)
+        result = orchestrator.discover(on_generation=on_generation)
+
+        log("━━━ DISCOVERY COMPLETE ━━━")
+        log(f"Generations: {result.n_generations}")
+        log(f"Pareto front: {len(result.pareto_front)} strategies")
+        log(f"Factor zoo: {len(result.factor_zoo)} validated formulas")
+
+        # Convert result to serializable format
+        pareto_front = []
+        for ind in result.pareto_front:
+            pareto_front.append({
+                "formula": ind.tree.formula,
+                "size": ind.tree.size,
+                "depth": ind.tree.depth,
+                "complexity": ind.tree.complexity_score(),
+                "fitness": {
+                    "sharpe": ind.fitness.get("sharpe", 0.0),
+                    "drawdown": ind.fitness.get("drawdown", 0.0),
+                    "turnover": ind.fitness.get("turnover", 0.0),
+                    "complexity": ind.fitness.get("complexity", 0.0),
+                },
+            })
+
+        best_by_objective = {}
+        for obj_name, ind in result.best_by_objective.items():
+            best_by_objective[obj_name] = {
+                "formula": ind.tree.formula,
+                "size": ind.tree.size,
+                "depth": ind.tree.depth,
+                "complexity": ind.tree.complexity_score(),
+                "fitness": {
+                    "sharpe": ind.fitness.get("sharpe", 0.0),
+                    "drawdown": ind.fitness.get("drawdown", 0.0),
+                    "turnover": ind.fitness.get("turnover", 0.0),
+                    "complexity": ind.fitness.get("complexity", 0.0),
+                },
+            }
+
+        factor_zoo = [tree.formula for tree in result.factor_zoo]
+
+        # Update pipeline stats
+        pipeline_stats["total_generated"] += request.population_size * request.n_generations
+        pipeline_stats["total_validated"] += len(result.factor_zoo)
+        pipeline_stats["total_passed"] += len(result.factor_zoo)
+
+        discovery_results[discovery_id] = {
+            "discovery_id": discovery_id,
+            "status": "completed",
+            "pareto_front": pareto_front,
+            "factor_zoo": factor_zoo,
+            "best_by_objective": best_by_objective,
+            "ensemble_weights": result.ensemble_weights,
+            "generation_stats": result.generation_stats,
+            "timestamp": datetime.now().isoformat(),
+            "logs": discovery_logs.get(discovery_id, []),
+        }
+        discovery_status[discovery_id] = "completed"
+
+    except Exception as e:
+        import traceback
+        log(f"✗ Error: {str(e)}")
+        log(traceback.format_exc())
+        discovery_results[discovery_id] = {
+            "discovery_id": discovery_id,
+            "status": "failed",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat(),
+            "logs": discovery_logs.get(discovery_id, []),
+        }
+        discovery_status[discovery_id] = "failed"
+
+
 # API Endpoints
 @app.get("/")
 async def root():
@@ -548,13 +707,57 @@ async def get_system_status():
 
     return {
         "status": "online",
-        "version": "MVP7",
+        "version": "MVP8",
         "total_validations": total_validations,
         "passed_validations": passed,
         "pass_rate": (passed / max(1, total_validations)) * 100,
         "factory_runs": len(factory_results),
+        "discovery_runs": len(discovery_results),
         "pipeline_stats": pipeline_stats,
     }
+
+
+@app.post("/api/discovery", response_model=DiscoveryResponse)
+async def run_discovery(request: DiscoveryRequest, background_tasks: BackgroundTasks):
+    """
+    Run the strategy discovery system.
+
+    Uses multi-objective genetic programming (NSGA-III) to evolve expression trees.
+    Returns Pareto front of non-dominated strategies.
+    """
+    discovery_id = str(uuid.uuid4())
+
+    # Start background task
+    background_tasks.add_task(run_discovery_task, discovery_id, request)
+
+    return DiscoveryResponse(
+        discovery_id=discovery_id,
+        status="started",
+        message=f"Discovery started for {request.symbol} with population {request.population_size}",
+    )
+
+
+@app.get("/api/discovery/{discovery_id}")
+async def get_discovery_result(discovery_id: str):
+    """Get discovery result by ID."""
+    if discovery_id not in discovery_status:
+        raise HTTPException(status_code=404, detail="Discovery run not found")
+
+    status = discovery_status[discovery_id]
+
+    if status == "running":
+        # Return live logs from discovery_logs
+        return {
+            "discovery_id": discovery_id,
+            "status": "running",
+            "message": "Discovery in progress...",
+            "logs": discovery_logs.get(discovery_id, []),
+        }
+
+    if discovery_id in discovery_results:
+        return discovery_results[discovery_id]
+
+    raise HTTPException(status_code=404, detail="Result not found")
 
 
 if __name__ == "__main__":

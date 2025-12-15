@@ -4,6 +4,8 @@ Strategy factory orchestrator.
 Coordinates strategy generation from multiple sources.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Callable
 

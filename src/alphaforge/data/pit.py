@@ -5,6 +5,8 @@ Ensures all queries return data AS IT WAS KNOWN at a specific timestamp,
 preventing lookahead bias in backtesting and feature engineering.
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import date, datetime, timedelta
 

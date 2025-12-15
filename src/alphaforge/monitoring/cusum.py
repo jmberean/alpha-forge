@@ -18,6 +18,8 @@ Reference:
 - Basseville & Nikiforov (1993): "Detection of Abrupt Changes"
 """
 
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
