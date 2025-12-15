@@ -166,18 +166,18 @@ class TerminalNode(Node):
 class ConstantNode(Node):
     """Constant node representing a literal value.
 
-    Used for window sizes (integers) or numeric constants (scalars).
+    Used for window sizes (windows) or numeric constants (scalars).
     """
 
     value: float | int = 0
-    data_type: DataType = DataType.INTEGER
+    data_type: DataType = DataType.WINDOW
 
     # Valid ranges for constants
-    INTEGER_RANGE: tuple[int, int] = (2, 252)  # Window sizes: 2 days to 1 year
+    WINDOW_RANGE: tuple[int, int] = (2, 252)  # Window sizes: 2 days to 1 year
     SCALAR_RANGE: tuple[float, float] = (-10.0, 10.0)
 
     def __post_init__(self) -> None:
-        if self.data_type == DataType.INTEGER:
+        if self.data_type == DataType.WINDOW:
             self.value = int(self.value)
 
     @property
@@ -193,7 +193,7 @@ class ConstantNode(Node):
         return 0
 
     def to_string(self) -> str:
-        if self.data_type == DataType.INTEGER:
+        if self.data_type == DataType.WINDOW:
             return str(int(self.value))
         return f"{self.value:.4f}"
 
@@ -205,8 +205,8 @@ class ConstantNode(Node):
         )
 
     @classmethod
-    def random_integer(cls, rng: Any = None) -> "ConstantNode":
-        """Create a random integer constant (window size)."""
+    def random_window(cls, rng: Any = None) -> "ConstantNode":
+        """Create a random window constant."""
         import random
         r = rng if rng else random
         # Bias toward common window sizes
@@ -214,8 +214,8 @@ class ConstantNode(Node):
         if r.random() < 0.5:
             value = r.choice(common_windows)
         else:
-            value = r.randint(cls.INTEGER_RANGE[0], cls.INTEGER_RANGE[1])
-        return cls(value=value, data_type=DataType.INTEGER)
+            value = r.randint(cls.WINDOW_RANGE[0], cls.WINDOW_RANGE[1])
+        return cls(value=value, data_type=DataType.WINDOW)
 
     @classmethod
     def random_scalar(cls, rng: Any = None) -> "ConstantNode":

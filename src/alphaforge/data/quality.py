@@ -53,7 +53,10 @@ class QualityReport:
     @property
     def has_errors(self) -> bool:
         """Check if report has errors."""
-        return any(i.severity in [Severity.ERROR, Severity.CRITICAL] for i in self.issues)
+        return any(
+            i.severity in [Severity.WARNING, Severity.ERROR, Severity.CRITICAL]
+            for i in self.issues
+        )
 
     def summary(self) -> str:
         """Generate summary string."""

@@ -28,6 +28,7 @@ from alphaforge.discovery.operators.selection import (
     compute_crowding_distance,
     dominates,
 )
+from alphaforge.evolution.genomes import ExpressionGenome
 
 
 class TestCrossoverOperators:
@@ -174,7 +175,7 @@ class TestSelectionOperators:
         for i in range(20):
             tree = generator.generate(method="ramped")
             ind = Individual(
-                tree=tree,
+                genome=ExpressionGenome(tree),
                 fitness={
                     "sharpe": random.uniform(0, 3),
                     "drawdown": random.uniform(-0.5, 0),

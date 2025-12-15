@@ -175,43 +175,46 @@ class ProbabilityOfOverfitting:
         return self.calculate(is_performance, oos_performance)
 
 
-def calculate_pbo_from_cpcv(
+def calculate_probability_of_loss(
     sharpe_distribution: list[float],
     threshold: float = 0.05,
 ) -> PBOResult:
     """
-    Simplified PBO from CPCV Sharpe distribution.
+    Calculate Probability of Loss (often confused with PBO).
 
-    This is a simplified version that uses the fraction of negative
-    OOS Sharpes as the PBO estimate.
+    This calculates the fraction of OOS trials with negative Sharpe ratio.
+    It is NOT the true Probability of Backtest Overfitting (which requires
+    selection bias analysis across multiple strategies), but rather a
+    measure of robustness for a single strategy.
 
     Args:
         sharpe_distribution: List of OOS Sharpe ratios from CPCV
-        threshold: PBO threshold for passing
+        threshold: Threshold for passing (default 0.05 = 5%)
 
     Returns:
-        PBOResult
+        PBOResult (repurposed for prob of loss)
     """
     sharpes = np.array(sharpe_distribution)
     n_combinations = len(sharpes)
     n_negative = np.sum(sharpes < 0)
 
-    pbo = n_negative / n_combinations
+    # In this context, "pbo" is actually "prob_loss"
+    prob_loss = n_negative / n_combinations
 
-    if pbo == 0:
+    if prob_loss == 0:
         logit_pbo = -np.inf
-    elif pbo == 1:
+    elif prob_loss == 1:
         logit_pbo = np.inf
     else:
-        logit_pbo = np.log(pbo / (1 - pbo))
+        logit_pbo = np.log(prob_loss / (1 - prob_loss))
 
     return PBOResult(
-        pbo=pbo,
+        pbo=prob_loss,
         logit_pbo=logit_pbo,
         n_combinations=n_combinations,
         n_overfit=n_negative,
         rank_correlation=np.nan,  # Not applicable for single strategy
-        passed=pbo < threshold,
+        passed=prob_loss < threshold,
     )
 
 

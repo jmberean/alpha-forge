@@ -105,12 +105,13 @@ def mutate_constant(
         return tree.clone()
 
     # Mutate value
-    if node.data_type == DataType.INTEGER:
-        delta = max(1, int(abs(node.value) * scale))
-        new_value = node.value + rng.choice([-delta, delta])
-        new_value = max(ConstantNode.INTEGER_RANGE[0],
-                       min(ConstantNode.INTEGER_RANGE[1], int(new_value)))
-        new_node = ConstantNode(value=new_value, data_type=DataType.INTEGER)
+    if node.data_type == DataType.WINDOW:
+        # Mutate window size
+        current = int(node.value)
+        # Small perturbation (+/- 1 to 5)
+        delta = rng.randint(-5, 5)
+        new_value = max(2, min(252, current + delta))
+        new_node = ConstantNode(value=new_value, data_type=DataType.WINDOW)
     else:
         delta = abs(node.value) * scale if node.value != 0 else scale
         new_value = node.value + rng.gauss(0, delta)

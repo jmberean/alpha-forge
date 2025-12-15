@@ -47,17 +47,18 @@ def test_create_simple_tree():
 
     from alphaforge.discovery.expression.tree import ExpressionTree
     from alphaforge.discovery.expression.nodes import OperatorNode, TerminalNode, ConstantNode
+    from alphaforge.discovery.expression.types import DataType
 
     # Create: ts_mean(close, 20)
     root = OperatorNode(
         name="ts_mean",
         children=[
             TerminalNode(name="close"),
-            ConstantNode(value=20, data_type=2),  # DataType.INTEGER
+            ConstantNode(value=20, data_type=DataType.WINDOW),
         ],
     )
 
-    tree = ExpressionTree(root=root)
+    tree = ExpressionTree(root=root, MIN_DEPTH=1, MIN_SIZE=1)
 
     assert tree.size == 3, f"Expected size 3, got {tree.size}"
     assert tree.depth == 2, f"Expected depth 2, got {tree.depth}"
@@ -121,10 +122,10 @@ def test_type_safety():
         name="ts_mean",
         children=[
             TerminalNode(name="close"),
-            ConstantNode(value=20, data_type=DataType.INTEGER),
+            ConstantNode(value=20, data_type=DataType.WINDOW),
         ],
     )
-    tree = ExpressionTree(root=root)
+    tree = ExpressionTree(root=root, MIN_DEPTH=1, MIN_SIZE=1)
     print(f"✓ Accepted valid tree: {tree.formula}")
 
     return True
@@ -191,6 +192,7 @@ def test_pareto_ranking():
 
     from alphaforge.discovery.expression.tree import TreeGenerator
     from alphaforge.discovery.operators.selection import Individual, compute_pareto_ranks
+    from alphaforge.evolution.genomes import ExpressionGenome
 
     generator = TreeGenerator(seed=42)
 
@@ -199,7 +201,7 @@ def test_pareto_ranking():
     for i in range(10):
         tree = generator.generate()
         ind = Individual(
-            tree=tree,
+            genome=ExpressionGenome(tree),
             fitness={
                 "sharpe": float(i % 3),  # 0, 1, 2, 0, 1, 2, ...
                 "drawdown": float(-(i % 2)),  # 0, -1, 0, -1, ...
@@ -231,8 +233,12 @@ def test_population():
 
     from alphaforge.discovery.expression.tree import TreeGenerator
     from alphaforge.discovery.evolution.population import create_initial_population
+    from alphaforge.evolution.genomes import ExpressionGenome
 
-    generator = TreeGenerator(seed=42)
+    gen = TreeGenerator(seed=42)
+    
+    def generator():
+        return ExpressionGenome(gen.generate(method="ramped"))
 
     population = create_initial_population(
         size=20,
@@ -243,14 +249,14 @@ def test_population():
     assert len(population) == 20, f"Expected 20 individuals, got {len(population)}"
 
     # Check uniqueness
-    hashes = [ind.tree.hash for ind in population]
+    hashes = [ind.genome.hash for ind in population]
     unique_hashes = set(hashes)
 
     print(f"✓ Created population of {len(population)} ({len(unique_hashes)} unique)")
 
     # Check stats
     stats = population.compute_stats()
-    print(f"  Avg size: {stats.avg_size:.1f}, Avg depth: {stats.avg_depth:.1f}")
+    # print(f"  Avg size: {stats.avg_size:.1f}, Avg depth: {stats.avg_depth:.1f}") # Stats structure changed
 
     return True
 
@@ -259,15 +265,21 @@ def test_nsga3_basic():
     """Test NSGA-III basic functionality."""
     print("\nTesting NSGA-III...")
 
-    from alphaforge.discovery.expression.tree import ExpressionTree
+    from alphaforge.discovery.expression.tree import ExpressionTree, TreeGenerator
     from alphaforge.discovery.evolution.nsga3 import NSGA3Optimizer, NSGA3Config
+    from alphaforge.evolution.genomes import ExpressionGenome
+    from alphaforge.evolution.protocol import Evolvable
 
     # Simple fitness functions for testing
-    def fitness_size(tree: ExpressionTree) -> float:
-        return -tree.size / 50.0
+    def fitness_size(genome: Evolvable) -> float:
+        if isinstance(genome, ExpressionGenome):
+            return -genome.tree.size / 50.0
+        return 0.0
 
-    def fitness_depth(tree: ExpressionTree) -> float:
-        return -tree.depth / 8.0
+    def fitness_depth(genome: Evolvable) -> float:
+        if isinstance(genome, ExpressionGenome):
+            return -genome.tree.depth / 8.0
+        return 0.0
 
     fitness_functions = {
         "size": fitness_size,
@@ -280,9 +292,14 @@ def test_nsga3_basic():
         n_objectives=2,
         seed=42,
     )
+    
+    gen = TreeGenerator(seed=42)
+    def generator():
+        return ExpressionGenome(gen.generate())
 
     optimizer = NSGA3Optimizer(
         fitness_functions=fitness_functions,
+        generator=generator,
         config=config,
     )
 

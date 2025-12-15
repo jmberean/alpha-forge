@@ -292,8 +292,8 @@ class TreeGenerator:
         """Generate a terminal node of the target type."""
         if target_type == DataType.SERIES:
             return TerminalNode(name=self.rng.choice(self.terminals))
-        elif target_type == DataType.INTEGER:
-            return ConstantNode.random_integer(self.rng)
+        elif target_type == DataType.WINDOW:
+            return ConstantNode.random_window(self.rng)
         elif target_type == DataType.SCALAR:
             return ConstantNode.random_scalar(self.rng)
         elif target_type == DataType.BOOLEAN:

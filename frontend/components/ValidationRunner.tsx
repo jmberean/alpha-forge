@@ -3,6 +3,7 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect } from 'react'
 import { validateStrategy, pollValidationResult, listTemplates, type ValidationResult, type Template } from '@/lib/api'
+import BacktestChart from './BacktestChart'
 
 export default function ValidationRunner() {
   const [symbol, setSymbol] = useState('SPY')
@@ -225,6 +226,16 @@ export default function ValidationRunner() {
               </div>
             </div>
           </div>
+          
+          {/* Equity Curve Chart */}
+          {result.equity_curve && (
+            <div className="mt-6">
+              <BacktestChart 
+                data={result.equity_curve} 
+                metrics={result.metrics}
+              />
+            </div>
+          )}
         </motion.div>
       )}
     </motion.div>

@@ -9,29 +9,43 @@ from alphaforge.discovery.evolution.nsga3 import (
     NSGA3Config,
 )
 from alphaforge.discovery.evolution.population import create_initial_population
+from alphaforge.evolution.genomes import ExpressionGenome
+from alphaforge.evolution.protocol import Evolvable
 
 
 class TestNSGA3:
     """Test NSGA-III optimizer."""
 
     @pytest.fixture
+    def generator_func(self):
+        gen = TreeGenerator(seed=42)
+        return lambda: ExpressionGenome(gen.generate(method="ramped"))
+
+    @pytest.fixture
     def simple_fitness_functions(self):
         """Create simple fitness functions for testing."""
 
-        def fitness_size(tree: ExpressionTree) -> float:
+        def fitness_size(genome: Evolvable) -> float:
             """Prefer smaller trees."""
+            if not isinstance(genome, ExpressionGenome): return -999.0
+            tree = genome.tree
             return -tree.size / 50.0
 
-        def fitness_depth(tree: ExpressionTree) -> float:
+        def fitness_depth(genome: Evolvable) -> float:
             """Prefer shallower trees."""
+            if not isinstance(genome, ExpressionGenome): return -999.0
+            tree = genome.tree
             return -tree.depth / 8.0
 
-        def fitness_random(tree: ExpressionTree) -> float:
+        def fitness_random(genome: Evolvable) -> float:
             """Random fitness for diversity."""
-            return hash(tree.formula) % 100 / 100.0
+            # Deterministic pseudo-randomness: avoid Python's salted `hash()`.
+            return (int(genome.hash[:8], 16) % 100) / 100.0
 
-        def fitness_complexity(tree: ExpressionTree) -> float:
+        def fitness_complexity(genome: Evolvable) -> float:
             """Prefer simpler trees."""
+            if not isinstance(genome, ExpressionGenome): return -999.0
+            tree = genome.tree
             return -tree.complexity_score()
 
         return {
@@ -41,7 +55,7 @@ class TestNSGA3:
             "complexity": fitness_complexity,
         }
 
-    def test_nsga3_initialization(self, simple_fitness_functions):
+    def test_nsga3_initialization(self, simple_fitness_functions, generator_func):
         """Test NSGA-III initialization."""
         config = NSGA3Config(
             population_size=20,
@@ -52,13 +66,14 @@ class TestNSGA3:
 
         optimizer = NSGA3Optimizer(
             fitness_functions=simple_fitness_functions,
+            generator=generator_func,
             config=config,
         )
 
         assert optimizer.config.population_size >= 20
         assert len(optimizer.reference_points) > 0
 
-    def test_reference_point_generation(self):
+    def test_reference_point_generation(self, generator_func):
         """Test reference point generation."""
         config = NSGA3Config(
             n_objectives=3,
@@ -71,6 +86,7 @@ class TestNSGA3:
                 "f2": lambda t: 0.0,
                 "f3": lambda t: 0.0,
             },
+            generator=generator_func,
             config=config,
         )
 
@@ -83,7 +99,7 @@ class TestNSGA3:
         sums = ref_points.sum(axis=1)
         assert np.allclose(sums, 1.0)
 
-    def test_nsga3_optimization(self, simple_fitness_functions):
+    def test_nsga3_optimization(self, simple_fitness_functions, generator_func):
         """Test full NSGA-III optimization run."""
         config = NSGA3Config(
             population_size=20,
@@ -94,6 +110,7 @@ class TestNSGA3:
 
         optimizer = NSGA3Optimizer(
             fitness_functions=simple_fitness_functions,
+            generator=generator_func,
             config=config,
         )
 
@@ -110,10 +127,10 @@ class TestNSGA3:
             assert len(ind.fitness) == 4
             assert all(k in ind.fitness for k in simple_fitness_functions.keys())
 
-    def test_warm_start(self, simple_fitness_functions):
+    def test_warm_start(self, simple_fitness_functions, generator_func):
         """Test warm start with initial population."""
         generator = TreeGenerator(seed=42)
-        warm_start = [generator.generate() for _ in range(5)]
+        warm_start = [ExpressionGenome(generator.generate()) for _ in range(5)]
 
         config = NSGA3Config(
             population_size=20,
@@ -123,6 +140,7 @@ class TestNSGA3:
 
         optimizer = NSGA3Optimizer(
             fitness_functions=simple_fitness_functions,
+            generator=generator_func,
             config=config,
         )
 
@@ -130,7 +148,7 @@ class TestNSGA3:
 
         assert len(result.pareto_front) > 0
 
-    def test_diversity_injection(self, simple_fitness_functions):
+    def test_diversity_injection(self, simple_fitness_functions, generator_func):
         """Test diversity injection during evolution."""
         config = NSGA3Config(
             population_size=20,
@@ -141,6 +159,7 @@ class TestNSGA3:
 
         optimizer = NSGA3Optimizer(
             fitness_functions=simple_fitness_functions,
+            generator=generator_func,
             config=config,
         )
 
@@ -150,7 +169,7 @@ class TestNSGA3:
         assert result.n_generations == 10
         assert len(result.pareto_front) > 0
 
-    def test_pareto_front_quality(self, simple_fitness_functions):
+    def test_pareto_front_quality(self, simple_fitness_functions, generator_func):
         """Test that Pareto front contains non-dominated solutions."""
         config = NSGA3Config(
             population_size=30,
@@ -160,6 +179,7 @@ class TestNSGA3:
 
         optimizer = NSGA3Optimizer(
             fitness_functions=simple_fitness_functions,
+            generator=generator_func,
             config=config,
         )
 
@@ -176,7 +196,7 @@ class TestNSGA3:
                 if i != j:
                     assert not dominates(ind1.fitness, ind2.fitness)
 
-    def test_generation_stats(self, simple_fitness_functions):
+    def test_generation_stats(self, simple_fitness_functions, generator_func):
         """Test that generation statistics are tracked."""
         config = NSGA3Config(
             population_size=20,
@@ -186,6 +206,7 @@ class TestNSGA3:
 
         optimizer = NSGA3Optimizer(
             fitness_functions=simple_fitness_functions,
+            generator=generator_func,
             config=config,
         )
 
@@ -200,7 +221,7 @@ class TestNSGA3:
             assert "pareto_front_size" in gen_stats
             assert "fitness" in gen_stats
 
-    def test_convergence(self, simple_fitness_functions):
+    def test_convergence(self, simple_fitness_functions, generator_func):
         """Test that optimization shows improvement over generations."""
         config = NSGA3Config(
             population_size=30,
@@ -210,6 +231,7 @@ class TestNSGA3:
 
         optimizer = NSGA3Optimizer(
             fitness_functions=simple_fitness_functions,
+            generator=generator_func,
             config=config,
         )
 
@@ -217,7 +239,7 @@ class TestNSGA3:
 
         # Pareto front should grow or stabilize over generations
         front_sizes = [
-            stats["pareto_front_size"] for stats in result.generation_stats
+            stats.get("pareto_front_size", 0) for stats in result.generation_stats
         ]
 
         # Early front should be smaller than late front (generally)

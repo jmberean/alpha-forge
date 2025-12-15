@@ -27,7 +27,7 @@ class TestExpressionTree:
         """Test creating a simple expression tree."""
         # Create: close
         root = TerminalNode(name="close")
-        tree = ExpressionTree(root=root)
+        tree = ExpressionTree(root=root, MIN_DEPTH=1, MIN_SIZE=1)
 
         assert tree.size == 1
         assert tree.depth == 1
@@ -41,7 +41,7 @@ class TestExpressionTree:
             name="ts_mean",
             children=[
                 TerminalNode(name="close"),
-                ConstantNode(value=20, data_type=DataType.INTEGER),
+                ConstantNode(value=20, data_type=DataType.WINDOW),
             ],
         )
         tree = ExpressionTree(root=root)
@@ -70,7 +70,7 @@ class TestExpressionTree:
             name="ts_mean",
             children=[
                 TerminalNode(name="close"),
-                ConstantNode(value=10),
+                ConstantNode(value=10, data_type=DataType.WINDOW),
             ],
         )
         tree = ExpressionTree(root=root)
@@ -101,7 +101,7 @@ class TestExpressionTree:
     def test_complexity_score(self):
         """Test complexity scoring."""
         # Simple tree
-        simple = ExpressionTree(root=TerminalNode(name="close"))
+        simple = ExpressionTree(root=TerminalNode(name="close"), MIN_DEPTH=1, MIN_SIZE=1)
         assert simple.complexity_score() < 0.2
 
         # Complex tree
@@ -110,7 +110,7 @@ class TestExpressionTree:
             children=[
                 TerminalNode(name="close"),
                 TerminalNode(name="volume"),
-                ConstantNode(value=50),
+                ConstantNode(value=50, data_type=DataType.WINDOW),
             ],
         )
         complex_tree = ExpressionTree(root=complex_root)
@@ -138,12 +138,14 @@ class TestTreeGenerator:
         assert tree.depth >= 2
 
     def test_generate_ramped_tree(self):
-        """Test ramped half-and-half generation."""
-        generator = TreeGenerator(max_depth=5, seed=42)
+        """Test ramped tree generation."""
+        generator = TreeGenerator(max_depth=6, min_depth=2, seed=42)
         tree = generator.generate(method="ramped")
 
         assert tree.is_valid()
-        assert 2 <= tree.depth <= 5
+        # Ramped can produce trees near max_depth
+        assert 2 <= tree.depth <= 6
+        assert tree.size >= 3
 
     def test_generate_population(self):
         """Test population generation."""
@@ -177,15 +179,20 @@ class TestExpressionCompiler:
         )
         return data
 
-    def test_compile_terminal(self, market_data):
-        """Test compiling terminal node."""
-        tree = ExpressionTree(root=TerminalNode(name="close"))
-        compiled = compile_tree(tree)
+    def test_compile_terminal(self):
+        """Test compiling a terminal node."""
+        tree = ExpressionTree(root=TerminalNode(name="close"), MIN_DEPTH=1, MIN_SIZE=1)
+        
+        # Mock data
+        df = pd.DataFrame({
+            "close": np.random.randn(100),
+            "volume": np.random.randn(100),
+        })
+        result = evaluate_tree(tree, df)
 
-        result = compiled(market_data)
         assert isinstance(result, pd.Series)
-        assert len(result) == len(market_data)
-        pd.testing.assert_series_equal(result, market_data["close"])
+        assert len(result) == len(df)
+        pd.testing.assert_series_equal(result, df["close"])
 
     def test_compile_operator(self, market_data):
         """Test compiling operator node."""
@@ -332,8 +339,22 @@ class TestOperatorImplementations:
             name="rank",
             children=[TerminalNode(name="close")],
         )
-        tree = ExpressionTree(root=root)
+        tree = ExpressionTree(root=root, MIN_SIZE=2)
         result = evaluate_tree(tree, market_data)
 
         # Rank should be monotonic for monotonic input
         assert (result.diff().dropna() >= 0).all()
+
+    def test_rank_is_point_in_time_safe(self, market_data):
+        """Rank at time t must not change when future data is appended."""
+        root = OperatorNode(
+            name="rank",
+            children=[TerminalNode(name="close")],
+        )
+        tree = ExpressionTree(root=root, MIN_SIZE=2)
+
+        full = evaluate_tree(tree, market_data)
+        partial_data = market_data.iloc[:50].copy()
+        partial = evaluate_tree(tree, partial_data)
+
+        pd.testing.assert_series_equal(full.iloc[:50], partial)

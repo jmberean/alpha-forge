@@ -16,14 +16,14 @@ from typing import TypeVar, Callable
 from dataclasses import dataclass
 import numpy as np
 
-from alphaforge.discovery.expression.tree import ExpressionTree
+from alphaforge.evolution.protocol import Evolvable
 
 
 @dataclass
 class Individual:
     """Individual with fitness values for selection."""
 
-    tree: ExpressionTree
+    genome: Evolvable
     fitness: dict[str, float]  # Objective name -> value
     rank: int = 0  # Pareto rank (lower is better)
     crowding_distance: float = 0.0

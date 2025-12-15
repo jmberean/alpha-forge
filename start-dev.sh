@@ -55,7 +55,7 @@ tmux split-window -h -t alphaforge
 
 # Backend in left pane
 tmux send-keys -t alphaforge:0.0 "source .venv/bin/activate" C-m
-tmux send-keys -t alphaforge:0.0 "cd src && python -m alphaforge.api.server" C-m
+tmux send-keys -t alphaforge:0.0 "python -m alphaforge.api.server" C-m
 
 # Frontend in right pane
 tmux send-keys -t alphaforge:0.1 "cd frontend && npm run dev" C-m

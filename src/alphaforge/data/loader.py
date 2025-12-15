@@ -189,7 +189,7 @@ class MarketDataLoader:
         df = ticker.history(
             start=start.isoformat(),
             end=end_inclusive.isoformat(),
-            auto_adjust=False,
+            auto_adjust=True,
         )
 
         if df.empty:

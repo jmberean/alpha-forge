@@ -4,9 +4,7 @@ FastAPI server for AlphaForge.
 Provides REST API endpoints to run validations and retrieve results.
 """
 
-import asyncio
 from datetime import datetime
-from typing import Optional
 import uuid
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -20,6 +18,7 @@ from alphaforge.validation.pipeline import ValidationPipeline
 from alphaforge.factory import StrategyFactory
 from alphaforge.factory.orchestrator import FactoryConfig
 from alphaforge.discovery import DiscoveryOrchestrator, DiscoveryConfig
+from alphaforge.api.storage import Storage
 
 # Create FastAPI app
 app = FastAPI(
@@ -37,20 +36,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage for validation results
-validation_results = {}
+# Persistence
+storage = Storage()
+
+# In-memory storage for running status (ephemeral)
 validation_status = {}
-
-# Storage for factory runs
-factory_results = {}
 factory_status = {}
-
-# Storage for discovery runs
-discovery_results = {}
 discovery_status = {}
 discovery_logs = {}  # Separate storage for live logs
+factory_logs = {}
 
 # Pipeline statistics (accumulated from runs)
+# TODO: Persist stats
 pipeline_stats = {
     "total_generated": 0,
     "total_validated": 0,
@@ -63,8 +60,8 @@ pipeline_stats = {
 class ValidationRequest(BaseModel):
     symbol: str
     template: str
-    start_date: Optional[str] = "2020-01-01"
-    end_date: Optional[str] = "2023-12-31"
+    start_date: str | None = "2020-01-01"
+    end_date: str | None = "2023-12-31"
     n_trials: int = 100
     run_cpcv: bool = False
     run_spa: bool = False
@@ -85,6 +82,7 @@ class ValidationResult(BaseModel):
     metrics: dict
     timestamp: str
     logs: list[str]
+    equity_curve: list[dict] = []
 
 
 class StrategyInfo(BaseModel):
@@ -140,7 +138,9 @@ async def run_validation_task(validation_id: str, request: ValidationRequest):
     try:
         # Update status
         validation_status[validation_id] = "running"
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Starting validation for {request.symbol}")
+        logs.append(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Starting validation for {request.symbol}"
+        )
 
         # Load data
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Loading market data...")
@@ -160,19 +160,43 @@ async def run_validation_task(validation_id: str, request: ValidationRequest):
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Running backtest...")
         engine = BacktestEngine()
         backtest_result = engine.run(strategy, data)
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ Sharpe: {backtest_result.metrics.sharpe_ratio:.2f}")
+        logs.append(
+            f"[{datetime.now().strftime('%H:%M:%S')}] ✓ Sharpe: {backtest_result.metrics.sharpe_ratio:.2f}"
+        )
+
+        # Always run benchmark for comparison chart
+        logs.append(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Calculating benchmark ({request.symbol})..."
+        )
+        benchmark_strategy = StrategyTemplates.buy_and_hold()
+        benchmark_result = engine.run(benchmark_strategy, data)
+        benchmark_returns = benchmark_result.returns
+
+        # Prepare equity curve data for chart
+        equity_curve_data = []
+        strategy_equity = backtest_result.equity_curve
+        benchmark_equity = benchmark_result.equity_curve
+
+        # Align indexes and create records
+        common_index = strategy_equity.index.intersection(benchmark_equity.index)
+
+        # Downsample for frontend performance (max 500 points)
+        if len(common_index) > 500:
+            step = len(common_index) // 500
+            common_index = common_index[::step]
+
+        for date in common_index:
+            equity_curve_data.append(
+                {
+                    "date": date.strftime("%Y-%m-%d"),
+                    "equity": float(strategy_equity.loc[date]),
+                    "benchmark": float(benchmark_equity.loc[date]),
+                }
+            )
 
         # Run validation
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Running statistical validation...")
         pipeline = ValidationPipeline()
-
-        # Get benchmark if SPA requested
-        benchmark_returns = None
-        if request.run_spa:
-            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Loading SPY benchmark...")
-            spy_data = loader.load("SPY", start=request.start_date, end=request.end_date)
-            spy_result = engine.run(StrategyTemplates.buy_and_hold(), spy_data)
-            benchmark_returns = spy_result.returns
 
         validation_result = pipeline.validate(
             strategy=strategy,
@@ -182,36 +206,47 @@ async def run_validation_task(validation_id: str, request: ValidationRequest):
             run_spa=request.run_spa,
             run_stress=request.run_stress,
             benchmark_returns=benchmark_returns,
-            benchmark_name="SPY" if request.run_spa else None,
+            benchmark_name=request.symbol,
         )
 
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ━━━ VALIDATION COMPLETE ━━━")
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] {'✓ PASSED' if validation_result.passed else '✗ FAILED'}")
+        logs.append(
+            f"[{datetime.now().strftime('%H:%M:%S')}] {'✓ PASSED' if validation_result.passed else '✗ FAILED'}"
+        )
 
-        # Store result
-        validation_results[validation_id] = {
+        # Save result to DB
+        result_data = {
             "validation_id": validation_id,
             "status": "completed",
             "strategy_name": strategy.name,
             "passed": validation_result.passed,
             "metrics": {
                 "sharpe_ratio": backtest_result.metrics.sharpe_ratio,
-                "dsr": validation_result.dsr_result.dsr_pvalue if validation_result.dsr_result else 0.0,
+                "dsr": validation_result.dsr_result.dsr_pvalue
+                if validation_result.dsr_result
+                else 0.0,
                 "pbo": validation_result.pbo_result.pbo if validation_result.pbo_result else None,
                 "annual_return": backtest_result.metrics.annualized_return,
                 "max_drawdown": backtest_result.metrics.max_drawdown,
                 "sortino_ratio": backtest_result.metrics.sortino_ratio,
                 "total_return": backtest_result.metrics.total_return,
                 "volatility": backtest_result.metrics.volatility,
+                "num_trades": backtest_result.metrics.num_trades,
+                "win_rate": backtest_result.metrics.win_rate,
+                "profit_factor": backtest_result.metrics.profit_factor,
+                "avg_win": backtest_result.metrics.avg_win,
+                "avg_loss": backtest_result.metrics.avg_loss,
             },
             "timestamp": datetime.now().isoformat(),
             "logs": logs,
+            "equity_curve": equity_curve_data,
         }
+        storage.save_validation(validation_id, result_data)
         validation_status[validation_id] = "completed"
 
     except Exception as e:
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ✗ Error: {str(e)}")
-        validation_results[validation_id] = {
+        error_data = {
             "validation_id": validation_id,
             "status": "failed",
             "strategy_name": request.template,
@@ -220,6 +255,7 @@ async def run_validation_task(validation_id: str, request: ValidationRequest):
             "timestamp": datetime.now().isoformat(),
             "logs": logs,
         }
+        storage.save_validation(validation_id, error_data)
         validation_status[validation_id] = "failed"
 
 
@@ -231,13 +267,21 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
 
     try:
         factory_status[factory_id] = "running"
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Strategy Factory")
+        factory_logs[factory_id] = []
+
+        def log(msg: str) -> None:
+            logs.append(msg)
+            factory_logs[factory_id].append(msg)
+
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Strategy Factory")
 
         # Load data
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Loading market data for {request.symbol}...")
+        log(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Loading market data for {request.symbol}..."
+        )
         loader = MarketDataLoader()
         data = loader.load(request.symbol, start=request.start_date, end=request.end_date)
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Loaded {len(data.df)} trading days")
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Loaded {len(data.df)} trading days")
 
         # Setup backtest engine
         engine = BacktestEngine()
@@ -250,9 +294,11 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
                 return -999
 
         # Configure factory
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Configuring genetic evolution...")
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}]   Population: {request.population_size}")
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}]   Generations: {request.generations}")
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Configuring genetic evolution...")
+        log(
+            f"[{datetime.now().strftime('%H:%M:%S')}]   Population: {request.population_size}"
+        )
+        log(f"[{datetime.now().strftime('%H:%M:%S')}]   Generations: {request.generations}")
 
         config = FactoryConfig(
             genetic_population=request.population_size,
@@ -262,14 +308,18 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
         )
 
         # Run factory
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Running genetic evolution...")
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Running genetic evolution...")
         factory = StrategyFactory(fitness_function=fitness, config=config)
         pool = factory.generate()
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Generated {len(pool.strategies)} candidates")
+        log(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Generated {len(pool.strategies)} candidates"
+        )
 
         # Get top strategies
         top_strategies = factory.get_top_strategies(n=request.validate_top_n)
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Top {len(top_strategies)} strategies selected for validation")
+        log(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Top {len(top_strategies)} strategies selected for validation"
+        )
 
         # Validate top strategies
         pipeline = ValidationPipeline()
@@ -277,7 +327,9 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
         passed_count = 0
 
         for i, (strategy, fitness_score) in enumerate(top_strategies, 1):
-            logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Validating #{i}: {strategy.name} (Sharpe: {fitness_score:.3f})")
+            log(
+                f"[{datetime.now().strftime('%H:%M:%S')}] Validating #{i}: {strategy.name} (Sharpe: {fitness_score:.3f})"
+            )
 
             try:
                 result = pipeline.validate(
@@ -297,26 +349,30 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
                 status = "passed" if result.passed else "failed"
                 if result.passed:
                     passed_count += 1
-                logs.append(f"[{datetime.now().strftime('%H:%M:%S')}]   {'PASSED' if result.passed else 'FAILED'}")
+                log(
+                    f"[{datetime.now().strftime('%H:%M:%S')}]   {'PASSED' if result.passed else 'FAILED'}"
+                )
 
-                validated_strategies.append({
-                    "id": str(uuid.uuid4()),
-                    "name": strategy.name,
-                    "type": "Genetic",
-                    "status": status,
-                    "sharpe": backtest.metrics.sharpe_ratio,
-                    "dsr": dsr_val,
-                    "pbo": pbo_val,
-                    "stress_pass_rate": stress_val,
-                    "annual_return": backtest.metrics.annualized_return,
-                    "max_drawdown": backtest.metrics.max_drawdown,
-                    "total_return": backtest.metrics.total_return,
-                    "fitness": fitness_score,
-                })
-
-                # Also add to global validation results
+                validated_strategies.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "name": strategy.name,
+                        "type": "Genetic",
+                        "status": status,
+                        "sharpe": backtest.metrics.sharpe_ratio,
+                        "dsr": dsr_val,
+                        "pbo": pbo_val,
+                        "stress_pass_rate": stress_val,
+                        "annual_return": backtest.metrics.annualized_return,
+                        "max_drawdown": backtest.metrics.max_drawdown,
+                        "total_return": backtest.metrics.total_return,
+                        "fitness": fitness_score,
+                    }
+                )
+                
+                # Persist these individual validation results too!
                 vid = validated_strategies[-1]["id"]
-                validation_results[vid] = {
+                val_data = {
                     "validation_id": vid,
                     "status": "completed",
                     "strategy_name": strategy.name,
@@ -335,22 +391,24 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
                     "timestamp": datetime.now().isoformat(),
                     "logs": [],
                 }
-                validation_status[vid] = "completed"
+                storage.save_validation(vid, val_data)
 
             except Exception as e:
-                logs.append(f"[{datetime.now().strftime('%H:%M:%S')}]   Error: {str(e)}")
+                log(f"[{datetime.now().strftime('%H:%M:%S')}]   Error: {str(e)}")
 
         # Update pipeline stats
         pipeline_stats["total_generated"] += len(pool.strategies)
         pipeline_stats["total_validated"] += len(validated_strategies)
         pipeline_stats["total_passed"] += passed_count
 
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] ━━━ FACTORY COMPLETE ━━━")
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Generated: {len(pool.strategies)}")
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Validated: {len(validated_strategies)}")
-        logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Passed: {passed_count}")
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] ━━━ FACTORY COMPLETE ━━━")
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Generated: {len(pool.strategies)}")
+        log(
+            f"[{datetime.now().strftime('%H:%M:%S')}] Validated: {len(validated_strategies)}"
+        )
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Passed: {passed_count}")
 
-        factory_results[factory_id] = {
+        factory_result = {
             "factory_id": factory_id,
             "status": "completed",
             "strategies": validated_strategies,
@@ -362,25 +420,39 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
             "timestamp": datetime.now().isoformat(),
             "logs": logs,
         }
+
+        storage.save_factory_run(
+            factory_id=factory_id,
+            status="completed",
+            config=request.model_dump(),
+            result=factory_result,
+        )
+
         factory_status[factory_id] = "completed"
 
     except Exception as e:
         logs.append(f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}")
-        factory_results[factory_id] = {
-            "factory_id": factory_id,
-            "status": "failed",
-            "strategies": [],
-            "stats": {},
-            "timestamp": datetime.now().isoformat(),
-            "logs": logs,
-        }
+        storage.save_factory_run(
+            factory_id=factory_id,
+            status="failed",
+            config=request.model_dump(),
+            result={
+                "factory_id": factory_id,
+                "status": "failed",
+                "strategies": [],
+                "stats": {},
+                "timestamp": datetime.now().isoformat(),
+                "logs": logs,
+                "error": str(e),
+            },
+        )
         factory_status[factory_id] = "failed"
 
 
 # Helper function to add log and store immediately
 def add_discovery_log(discovery_id: str, message: str):
     """Add a log message and store it immediately for live updates."""
-    timestamp = datetime.now().strftime('%H:%M:%S')
+    timestamp = datetime.now().strftime("%H:%M:%S")
     log_entry = f"[{timestamp}] {message}"
     if discovery_id not in discovery_logs:
         discovery_logs[discovery_id] = []
@@ -433,9 +505,15 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
         def on_generation(gen: int, stats: dict):
             """Callback for each generation."""
             fitness = stats.get("fitness", {})
-            best_sharpe = fitness.get("max", {}).get("sharpe", 0) if isinstance(fitness.get("max"), dict) else 0
+            best_sharpe = (
+                fitness.get("max", {}).get("sharpe", 0)
+                if isinstance(fitness.get("max"), dict)
+                else 0
+            )
             pareto_size = stats.get("pareto_front_size", 0)
-            log(f"Gen {gen:3d}/{request.n_generations} | Pareto: {pareto_size} | Unique: {stats.get('unique_formulas', 0)}")
+            log(
+                f"Gen {gen:3d}/{request.n_generations} | Pareto: {pareto_size} | Unique: {stats.get('unique_formulas', 0)}"
+            )
 
         log("Running multi-objective evolution...")
         orchestrator = DiscoveryOrchestrator(data.df, config)
@@ -449,18 +527,20 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
         # Convert result to serializable format
         pareto_front = []
         for ind in result.pareto_front:
-            pareto_front.append({
-                "formula": ind.tree.formula,
-                "size": ind.tree.size,
-                "depth": ind.tree.depth,
-                "complexity": ind.tree.complexity_score(),
-                "fitness": {
-                    "sharpe": ind.fitness.get("sharpe", 0.0),
-                    "drawdown": ind.fitness.get("drawdown", 0.0),
-                    "turnover": ind.fitness.get("turnover", 0.0),
-                    "complexity": ind.fitness.get("complexity", 0.0),
-                },
-            })
+            pareto_front.append(
+                {
+                    "formula": ind.tree.formula,
+                    "size": ind.tree.size,
+                    "depth": ind.tree.depth,
+                    "complexity": ind.tree.complexity_score(),
+                    "fitness": {
+                        "sharpe": ind.fitness.get("sharpe", 0.0),
+                        "drawdown": ind.fitness.get("drawdown", 0.0),
+                        "turnover": ind.fitness.get("turnover", 0.0),
+                        "complexity": ind.fitness.get("complexity", 0.0),
+                    },
+                }
+            )
 
         best_by_objective = {}
         for obj_name, ind in result.best_by_objective.items():
@@ -484,7 +564,7 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
         pipeline_stats["total_validated"] += len(result.factor_zoo)
         pipeline_stats["total_passed"] += len(result.factor_zoo)
 
-        discovery_results[discovery_id] = {
+        discovery_result = {
             "discovery_id": discovery_id,
             "status": "completed",
             "pareto_front": pareto_front,
@@ -496,19 +576,31 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
             "timestamp": datetime.now().isoformat(),
             "logs": discovery_logs.get(discovery_id, []),
         }
+        storage.save_discovery_run(
+            discovery_id=discovery_id,
+            status="completed",
+            config=request.model_dump(),
+            result=discovery_result,
+        )
         discovery_status[discovery_id] = "completed"
 
     except Exception as e:
         import traceback
+
         log(f"✗ Error: {str(e)}")
         log(traceback.format_exc())
-        discovery_results[discovery_id] = {
-            "discovery_id": discovery_id,
-            "status": "failed",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-            "logs": discovery_logs.get(discovery_id, []),
-        }
+        storage.save_discovery_run(
+            discovery_id=discovery_id,
+            status="failed",
+            config=request.model_dump(),
+            result={
+                "discovery_id": discovery_id,
+                "status": "failed",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat(),
+                "logs": discovery_logs.get(discovery_id, []),
+            },
+        )
         discovery_status[discovery_id] = "failed"
 
 
@@ -546,20 +638,20 @@ async def validate_strategy(request: ValidationRequest, background_tasks: Backgr
 @app.get("/api/validate/{validation_id}")
 async def get_validation_result(validation_id: str):
     """Get validation result by ID."""
-    if validation_id not in validation_status:
-        raise HTTPException(status_code=404, detail="Validation not found")
+    # Check running status (in-memory) first
+    if validation_id in validation_status:
+        status = validation_status[validation_id]
+        if status == "running":
+            return {
+                "validation_id": validation_id,
+                "status": "running",
+                "message": "Validation in progress...",
+            }
 
-    status = validation_status[validation_id]
-
-    if status == "running":
-        return {
-            "validation_id": validation_id,
-            "status": "running",
-            "message": "Validation in progress...",
-        }
-
-    if validation_id in validation_results:
-        return validation_results[validation_id]
+    # Check persistence
+    result = storage.get_validation(validation_id)
+    if result:
+        return result
 
     raise HTTPException(status_code=404, detail="Result not found")
 
@@ -567,24 +659,23 @@ async def get_validation_result(validation_id: str):
 @app.get("/api/strategies")
 async def list_strategies():
     """List all completed validations."""
-    completed = [
-        result for result in validation_results.values()
-        if result["status"] == "completed"
-    ]
+    completed = storage.list_validations()
 
     # Convert to StrategyInfo format
     strategies = []
     for result in completed:
-        metrics = result["metrics"]
-        strategies.append({
-            "id": result["validation_id"],
-            "name": result["strategy_name"],
-            "type": "Template",
-            "status": "approved" if result["passed"] else "rejected",
-            "sharpe": metrics.get("sharpe_ratio", 0.0),
-            "dsr": metrics.get("dsr", 0.0),
-            "annual_return": metrics.get("annual_return", 0.0),
-        })
+        metrics = result.get("metrics", {})
+        strategies.append(
+            {
+                "id": result["validation_id"],
+                "name": result["strategy_name"],
+                "type": "Template",
+                "status": "approved" if result["passed"] else "rejected",
+                "sharpe": metrics.get("sharpe_ratio", 0.0),
+                "dsr": metrics.get("dsr", 0.0),
+                "annual_return": metrics.get("annual_return", 0.0),
+            }
+        )
 
     return strategies
 
@@ -597,10 +688,12 @@ async def list_templates():
     # Get all template methods from StrategyTemplates
     for attr in dir(StrategyTemplates):
         if not attr.startswith("_") and callable(getattr(StrategyTemplates, attr)):
-            templates.append({
-                "name": attr,
-                "display_name": attr.replace("_", " ").title(),
-            })
+            templates.append(
+                {
+                    "name": attr,
+                    "display_name": attr.replace("_", " ").title(),
+                }
+            )
 
     return templates
 
@@ -633,22 +726,16 @@ async def get_factory_result(factory_id: str):
     status = factory_status[factory_id]
 
     if status == "running":
-        # Return partial logs if available
-        if factory_id in factory_results:
-            return {
-                "factory_id": factory_id,
-                "status": "running",
-                "message": "Factory in progress...",
-                "logs": factory_results[factory_id].get("logs", []),
-            }
         return {
             "factory_id": factory_id,
             "status": "running",
             "message": "Factory in progress...",
+            "logs": factory_logs.get(factory_id, []),
         }
 
-    if factory_id in factory_results:
-        return factory_results[factory_id]
+    result = storage.get_factory_run(factory_id)
+    if result:
+        return result
 
     raise HTTPException(status_code=404, detail="Result not found")
 
@@ -659,11 +746,42 @@ async def get_pipeline_stats():
     return {
         "stages": [
             {"name": "Generated", "count": pipeline_stats["total_generated"], "rate": 100},
-            {"name": "Screened (DSR)", "count": pipeline_stats["total_validated"], "rate": (pipeline_stats["total_validated"] / max(1, pipeline_stats["total_generated"])) * 100},
-            {"name": "Validated (CPCV)", "count": pipeline_stats["total_validated"], "rate": (pipeline_stats["total_validated"] / max(1, pipeline_stats["total_generated"])) * 100},
-            {"name": "Stress Tested", "count": pipeline_stats["total_validated"], "rate": (pipeline_stats["total_validated"] / max(1, pipeline_stats["total_generated"])) * 100},
-            {"name": "Passed", "count": pipeline_stats["total_passed"], "rate": (pipeline_stats["total_passed"] / max(1, pipeline_stats["total_validated"])) * 100},
-            {"name": "Deployed", "count": pipeline_stats["total_deployed"], "rate": (pipeline_stats["total_deployed"] / max(1, pipeline_stats["total_passed"])) * 100},
+            {
+                "name": "Screened (DSR)",
+                "count": pipeline_stats["total_validated"],
+                "rate": (
+                    pipeline_stats["total_validated"] / max(1, pipeline_stats["total_generated"])
+                )
+                * 100,
+            },
+            {
+                "name": "Validated (CPCV)",
+                "count": pipeline_stats["total_validated"],
+                "rate": (
+                    pipeline_stats["total_validated"] / max(1, pipeline_stats["total_generated"])
+                )
+                * 100,
+            },
+            {
+                "name": "Stress Tested",
+                "count": pipeline_stats["total_validated"],
+                "rate": (
+                    pipeline_stats["total_validated"] / max(1, pipeline_stats["total_generated"])
+                )
+                * 100,
+            },
+            {
+                "name": "Passed",
+                "count": pipeline_stats["total_passed"],
+                "rate": (pipeline_stats["total_passed"] / max(1, pipeline_stats["total_validated"]))
+                * 100,
+            },
+            {
+                "name": "Deployed",
+                "count": pipeline_stats["total_deployed"],
+                "rate": (pipeline_stats["total_deployed"] / max(1, pipeline_stats["total_passed"]))
+                * 100,
+            },
         ],
         "totals": pipeline_stats,
     }
@@ -672,14 +790,16 @@ async def get_pipeline_stats():
 @app.get("/api/metrics/latest")
 async def get_latest_metrics():
     """Get metrics from the most recent validation."""
-    if not validation_results:
+    # Fetch latest from DB
+    validations = storage.list_validations()
+    if not validations:
         return {
             "has_data": False,
             "metrics": [],
         }
 
     # Get most recent result
-    latest = max(validation_results.values(), key=lambda x: x.get("timestamp", ""))
+    latest = validations[0] # list_validations sorts by desc timestamp
     metrics = latest.get("metrics", {})
 
     return {
@@ -688,14 +808,54 @@ async def get_latest_metrics():
         "passed": latest.get("passed", False),
         "timestamp": latest.get("timestamp", ""),
         "metrics": [
-            {"name": "Deflated Sharpe Ratio", "value": metrics.get("dsr", 0), "threshold": "> 0.95", "unit": ""},
-            {"name": "Probability of Backtest Overfitting", "value": metrics.get("pbo", 0), "threshold": "< 0.05", "unit": ""},
-            {"name": "Sharpe Ratio", "value": metrics.get("sharpe_ratio", 0), "threshold": "> 1.0", "unit": ""},
-            {"name": "Annual Return", "value": metrics.get("annual_return", 0) * 100, "threshold": "", "unit": "%"},
-            {"name": "Max Drawdown", "value": abs(metrics.get("max_drawdown", 0)) * 100, "threshold": "", "unit": "%"},
-            {"name": "Sortino Ratio", "value": metrics.get("sortino_ratio", 0), "threshold": "", "unit": ""},
-            {"name": "Volatility", "value": metrics.get("volatility", 0) * 100, "threshold": "", "unit": "%"},
-            {"name": "Total Return", "value": metrics.get("total_return", 0) * 100, "threshold": "", "unit": "%"},
+            {
+                "name": "Deflated Sharpe Ratio",
+                "value": metrics.get("dsr", 0),
+                "threshold": "> 0.95",
+                "unit": "",
+            },
+            {
+                "name": "Probability of Backtest Overfitting",
+                "value": metrics.get("pbo", 0),
+                "threshold": "< 0.05",
+                "unit": "",
+            },
+            {
+                "name": "Sharpe Ratio",
+                "value": metrics.get("sharpe_ratio", 0),
+                "threshold": "> 1.0",
+                "unit": "",
+            },
+            {
+                "name": "Annual Return",
+                "value": metrics.get("annual_return", 0) * 100,
+                "threshold": "",
+                "unit": "%",
+            },
+            {
+                "name": "Max Drawdown",
+                "value": abs(metrics.get("max_drawdown", 0)) * 100,
+                "threshold": "",
+                "unit": "%",
+            },
+            {
+                "name": "Sortino Ratio",
+                "value": metrics.get("sortino_ratio", 0),
+                "threshold": "",
+                "unit": "",
+            },
+            {
+                "name": "Volatility",
+                "value": metrics.get("volatility", 0) * 100,
+                "threshold": "",
+                "unit": "%",
+            },
+            {
+                "name": "Total Return",
+                "value": metrics.get("total_return", 0) * 100,
+                "threshold": "",
+                "unit": "%",
+            },
         ],
     }
 
@@ -703,8 +863,12 @@ async def get_latest_metrics():
 @app.get("/api/system/status")
 async def get_system_status():
     """Get system status and health information."""
-    total_validations = len(validation_results)
-    passed = sum(1 for r in validation_results.values() if r.get("passed", False))
+    # Get stats from DB
+    validations = storage.list_validations()
+    total_validations = len(validations)
+    passed = sum(1 for r in validations if r.get("passed", False))
+    factory_runs = storage.list_factory_runs()
+    discovery_runs = storage.list_discovery_runs()
 
     return {
         "status": "online",
@@ -712,8 +876,8 @@ async def get_system_status():
         "total_validations": total_validations,
         "passed_validations": passed,
         "pass_rate": (passed / max(1, total_validations)) * 100,
-        "factory_runs": len(factory_results),
-        "discovery_runs": len(discovery_results),
+        "factory_runs": len(factory_runs),
+        "discovery_runs": len(discovery_runs),
         "pipeline_stats": pipeline_stats,
     }
 
@@ -755,12 +919,14 @@ async def get_discovery_result(discovery_id: str):
             "logs": discovery_logs.get(discovery_id, []),
         }
 
-    if discovery_id in discovery_results:
-        return discovery_results[discovery_id]
+    result = storage.get_discovery_run(discovery_id)
+    if result:
+        return result
 
     raise HTTPException(status_code=404, detail="Result not found")
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

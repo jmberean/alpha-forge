@@ -61,10 +61,8 @@ trap cleanup INT TERM
 
 # Start backend
 echo -e "${CYAN}[1/2] Starting Backend API...${NC}"
-cd "$PROJECT_ROOT/src"
 "$PYTHON_BIN" -m alphaforge.api.server > "$PROJECT_ROOT/logs/backend.log" 2>&1 &
 BACKEND_PID=$!
-cd "$PROJECT_ROOT"
 
 # Wait a moment for backend to start
 sleep 2

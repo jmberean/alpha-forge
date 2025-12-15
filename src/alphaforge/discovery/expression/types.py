@@ -14,11 +14,12 @@ class DataType(Enum):
     SCALAR = auto()      # Single numeric value
     SERIES = auto()      # Time series (pd.Series)
     BOOLEAN = auto()     # Boolean value or series
-    INTEGER = auto()     # Integer (for window sizes, periods)
+    WINDOW = auto()      # Static integer constant (e.g. 20)
+    INDEX = auto()       # Dynamic integer series (e.g. days since max)
 
     def is_numeric(self) -> bool:
         """Check if type is numeric."""
-        return self in (DataType.SCALAR, DataType.SERIES, DataType.INTEGER)
+        return self in (DataType.SCALAR, DataType.SERIES, DataType.INDEX)
 
     def is_compatible_with(self, other: "DataType") -> bool:
         """Check type compatibility for operations."""
@@ -29,11 +30,7 @@ class DataType(Enum):
             return True
         if self == DataType.SERIES and other == DataType.SCALAR:
             return True
-        # Integer is compatible with numeric types
-        if self == DataType.INTEGER and other.is_numeric():
-            return True
-        if other == DataType.INTEGER and self.is_numeric():
-            return True
+        # Index can promote to Series? No, kept separate to prevent addition.
         return False
 
 
@@ -87,19 +84,22 @@ OPERATOR_SIGNATURES: dict[str, OperatorSignature] = {
     "sign": OperatorSignature("sign", (DataType.SERIES,), DataType.SERIES, 1),
     "power": OperatorSignature("power", (DataType.SERIES, DataType.SCALAR), DataType.SERIES, 2),
 
-    # Temporal (Series, Integer -> Series)
-    "delay": OperatorSignature("delay", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "delta": OperatorSignature("delta", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_mean": OperatorSignature("ts_mean", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_std": OperatorSignature("ts_std", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_min": OperatorSignature("ts_min", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_max": OperatorSignature("ts_max", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_sum": OperatorSignature("ts_sum", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_rank": OperatorSignature("ts_rank", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_argmax": OperatorSignature("ts_argmax", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_argmin": OperatorSignature("ts_argmin", (DataType.SERIES, DataType.INTEGER), DataType.SERIES, 2),
-    "ts_corr": OperatorSignature("ts_corr", (DataType.SERIES, DataType.SERIES, DataType.INTEGER), DataType.SERIES, 3),
-    "ts_cov": OperatorSignature("ts_cov", (DataType.SERIES, DataType.SERIES, DataType.INTEGER), DataType.SERIES, 3),
+    # Temporal (Series, Window -> Series)
+    "delay": OperatorSignature("delay", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    "delta": OperatorSignature("delta", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    "ts_mean": OperatorSignature("ts_mean", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    "ts_std": OperatorSignature("ts_std", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    "ts_min": OperatorSignature("ts_min", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    "ts_max": OperatorSignature("ts_max", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    "ts_sum": OperatorSignature("ts_sum", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    "ts_rank": OperatorSignature("ts_rank", (DataType.SERIES, DataType.WINDOW), DataType.SERIES, 2),
+    
+    # Temporal Index (Series, Window -> Index)
+    "ts_argmax": OperatorSignature("ts_argmax", (DataType.SERIES, DataType.WINDOW), DataType.INDEX, 2),
+    "ts_argmin": OperatorSignature("ts_argmin", (DataType.SERIES, DataType.WINDOW), DataType.INDEX, 2),
+    
+    "ts_corr": OperatorSignature("ts_corr", (DataType.SERIES, DataType.SERIES, DataType.WINDOW), DataType.SERIES, 3),
+    "ts_cov": OperatorSignature("ts_cov", (DataType.SERIES, DataType.SERIES, DataType.WINDOW), DataType.SERIES, 3),
 
     # Cross-sectional (Series -> Series)
     "rank": OperatorSignature("rank", (DataType.SERIES,), DataType.SERIES, 1),

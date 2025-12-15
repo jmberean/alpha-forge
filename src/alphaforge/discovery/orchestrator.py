@@ -21,7 +21,7 @@ import os
 import pandas as pd
 import numpy as np
 
-from alphaforge.discovery.expression.tree import ExpressionTree
+from alphaforge.discovery.expression.tree import ExpressionTree, TreeGenerator
 from alphaforge.discovery.expression.compiler import compile_tree
 from alphaforge.discovery.evolution.nsga3 import (
     NSGA3Optimizer,
@@ -32,6 +32,8 @@ from alphaforge.discovery.operators.selection import Individual
 from alphaforge.backtest.engine import BacktestEngine
 from alphaforge.backtest.metrics import PerformanceMetrics
 from alphaforge.strategy.genome import StrategyGenome
+from alphaforge.evolution.genomes import ExpressionGenome
+from alphaforge.evolution.protocol import Evolvable
 
 
 # Get optimal worker count for this machine
@@ -53,6 +55,8 @@ class DiscoveryConfig:
         max_turnover: Maximum turnover threshold (trades per day)
         max_complexity: Maximum complexity score threshold
         validation_split: Fraction of data for validation (0.3 = 30% validation)
+        min_trades: Minimum number of trades required (default 10)
+        min_volatility: Minimum annualized volatility required (default 0.05)
         seed: Random seed
     """
 
@@ -66,6 +70,8 @@ class DiscoveryConfig:
     max_turnover: float = 0.2
     max_complexity: float = 0.7
     validation_split: float = 0.3
+    min_trades: int = 10
+    min_volatility: float = 0.05
     seed: int | None = None
 
 
@@ -116,6 +122,9 @@ class DiscoveryOrchestrator:
         # Initialize components
         self.backtest_engine = BacktestEngine()
         self.factor_zoo: list[ExpressionTree] = []
+        
+        # Tree generator
+        self.tree_generator = TreeGenerator(seed=self.config.seed)
 
         # Cache for compiled expressions
         self._compiled_cache: dict[str, Any] = {}
@@ -158,15 +167,25 @@ class DiscoveryOrchestrator:
             diversity_injection=self.config.diversity_injection,
             seed=self.config.seed,
         )
+        
+        # Generator for new individuals
+        def generator() -> Evolvable:
+            return ExpressionGenome(self.tree_generator.generate(method="ramped"))
 
         # Run evolution
         optimizer = NSGA3Optimizer(
             fitness_functions=fitness_functions,
+            generator=generator,
             config=nsga3_config,
         )
+        
+        # Prepare initial population
+        initial_population = []
+        if warm_start_formulas:
+            initial_population = [ExpressionGenome(tree) for tree in warm_start_formulas]
 
         nsga3_result = optimizer.optimize(
-            initial_population=warm_start_formulas,
+            initial_population=initial_population,
             on_generation=on_generation,
         )
 
@@ -190,7 +209,7 @@ class DiscoveryOrchestrator:
             n_generations=nsga3_result.n_generations,
         )
 
-    def _create_fitness_functions(self) -> dict[str, Callable[[ExpressionTree], float]]:
+    def _create_fitness_functions(self) -> dict[str, Callable[[Evolvable], float]]:
         """Create fitness functions for each objective.
 
         OPTIMIZED: Uses a single combined evaluation function that runs ONE backtest
@@ -202,17 +221,27 @@ class DiscoveryOrchestrator:
         """
         # Use combined fitness that caches results
         return {
-            "sharpe": lambda tree: self._get_cached_fitness(tree).get("sharpe", -999.0),
-            "drawdown": lambda tree: self._get_cached_fitness(tree).get("drawdown", -999.0),
-            "turnover": lambda tree: self._get_cached_fitness(tree).get("turnover", -999.0),
-            "complexity": lambda tree: self._get_cached_fitness(tree).get("complexity", -999.0),
+            "sharpe": lambda genome: self._get_cached_fitness(genome).get("sharpe", -999.0),
+            "drawdown": lambda genome: self._get_cached_fitness(genome).get("drawdown", -999.0),
+            "turnover": lambda genome: self._get_cached_fitness(genome).get("turnover", -999.0),
+            "complexity": lambda genome: self._get_cached_fitness(genome).get("complexity", -999.0),
         }
 
-    def _get_cached_fitness(self, tree: ExpressionTree) -> dict[str, float]:
+    def _get_cached_fitness(self, genome: Evolvable) -> dict[str, float]:
         """Get all fitness values for a tree, using cache to avoid redundant backtests.
 
         This is the key optimization - ONE backtest extracts ALL metrics.
         """
+        # Only support ExpressionGenome for now in Discovery
+        if not isinstance(genome, ExpressionGenome):
+            return {
+                "sharpe": -999.0,
+                "drawdown": -999.0,
+                "turnover": -999.0,
+                "complexity": -999.0,
+            }
+            
+        tree = genome.tree
         cache_key = tree.formula
 
         if cache_key in self._fitness_cache:
@@ -256,6 +285,16 @@ class DiscoveryOrchestrator:
             # Extract metrics
             metrics = PerformanceMetrics.from_returns(strategy_returns)
 
+            # Check activity constraints (Fix #4.1: Zero-Trade Loophole)
+            if (metrics.num_trades < self.config.min_trades or 
+                metrics.volatility < self.config.min_volatility):
+                return {
+                    "sharpe": -999.0,
+                    "drawdown": -999.0,
+                    "turnover": -999.0,
+                    "complexity": -999.0,
+                }
+
             # Calculate turnover
             avg_turnover = position_changes.mean()
 
@@ -297,6 +336,8 @@ class DiscoveryOrchestrator:
     def _signals_to_positions(self, signal: pd.Series) -> pd.Series:
         """Convert continuous signal to discrete positions.
 
+        Uses expanding window normalization to prevent lookahead bias (Fix #4.2).
+
         Args:
             signal: Continuous signal values
 
@@ -304,24 +345,24 @@ class DiscoveryOrchestrator:
             Positions series (-1, 0, 1)
         """
         # Drop NaN for normalization calculation
-        valid_signal = signal.dropna()
-        if len(valid_signal) < 2:
-            return pd.Series(0, index=signal.index, dtype=float)
-
-        # Normalize signal using valid values only
-        mean = valid_signal.mean()
-        std = valid_signal.std()
-        if std == 0 or np.isnan(std):
-            return pd.Series(0, index=signal.index, dtype=float)
-
-        signal_norm = (signal - mean) / std
+        # valid_signal = signal.dropna() # Cannot dropna, indexes must align
+        
+        # Use expanding window z-score
+        # Requires at least 20 periods to establish a baseline
+        expanding_mean = signal.expanding(min_periods=20).mean()
+        expanding_std = signal.expanding(min_periods=20).std()
+        
+        # Avoid division by zero
+        expanding_std = expanding_std.replace(0, np.nan)
+        
+        signal_norm = (signal - expanding_mean) / expanding_std
 
         # Threshold at ±0.5 std
         positions = pd.Series(0, index=signal.index, dtype=float)
         positions[signal_norm > 0.5] = 1.0
         positions[signal_norm < -0.5] = -1.0
 
-        # Fill NaN positions with 0
+        # Fill NaN positions (start of series) with 0
         positions = positions.fillna(0)
 
         return positions
@@ -342,9 +383,14 @@ class DiscoveryOrchestrator:
         validated = []
 
         for ind in strategies:
+            # Need to unwrap ExpressionGenome
+            if not isinstance(ind.genome, ExpressionGenome):
+                continue
+            tree = ind.genome.tree
+            
             try:
                 # Evaluate on validation data
-                signal = self._evaluate_tree(ind.tree, self.validation_data)
+                signal = self._evaluate_tree(tree, self.validation_data)
 
                 # Skip if all NaN
                 if signal.isna().all():
@@ -368,7 +414,7 @@ class DiscoveryOrchestrator:
                 # Check thresholds
                 if (metrics.sharpe_ratio >= self.config.min_sharpe and
                     metrics.max_drawdown <= abs(1.0 / self.config.min_sharpe) and
-                    ind.tree.complexity_score() <= self.config.max_complexity):
+                    tree.complexity_score() <= self.config.max_complexity):
 
                     # Update fitness with validation metrics
                     ind.fitness["validation_sharpe"] = metrics.sharpe_ratio
@@ -389,23 +435,36 @@ class DiscoveryOrchestrator:
         """
         # Add formulas meeting quality criteria
         for ind in validated_strategies:
+            if not isinstance(ind.genome, ExpressionGenome):
+                continue
+            tree = ind.genome.tree
+            
             sharpe = ind.fitness.get("sharpe", 0)
-            complexity = ind.tree.complexity_score()
+            complexity = tree.complexity_score()
 
             # Quality criteria: Sharpe > 1.0 and complexity < 0.5
             if sharpe > 1.0 and complexity < 0.5:
                 # Check uniqueness
-                if not any(ind.tree.hash == f.hash for f in self.factor_zoo):
-                    self.factor_zoo.append(ind.tree.clone())
+                if not any(tree.hash == f.hash for f in self.factor_zoo):
+                    self.factor_zoo.append(tree.clone())
 
         # Sort by Sharpe ratio (descending)
-        self.factor_zoo.sort(
-            key=lambda tree: self._get_cached_fitness(tree).get("sharpe", -999.0),
+        # Note: _get_cached_fitness needs ExpressionGenome
+        # But factor_zoo stores ExpressionTree
+        # We need to wrap it temporarily or update sort key
+        
+        # Simplified sort key that re-computes or trusts metadata if available
+        # But we don't have metadata on tree objects easily accessible here
+        # Let's rebuild wrappers
+        zoo_genomes = [ExpressionGenome(t) for t in self.factor_zoo]
+        
+        zoo_genomes.sort(
+            key=lambda g: self._get_cached_fitness(g).get("sharpe", -999.0),
             reverse=True,
         )
 
         # Keep top 100
-        self.factor_zoo = self.factor_zoo[:100]
+        self.factor_zoo = [g.tree for g in zoo_genomes[:100]]
 
     def _create_ensemble(
         self, strategies: list[Individual]
@@ -427,7 +486,7 @@ class DiscoveryOrchestrator:
         weight = 1.0 / len(strategies)
 
         ensemble_weights = {
-            ind.tree.hash: weight
+            ind.genome.hash: weight
             for ind in strategies
         }
 
@@ -451,20 +510,14 @@ class DiscoveryOrchestrator:
 
         for i, ind in enumerate(individuals):
             # Create genome with expression tree as signal
-            genome = StrategyGenome(
-                name=f"discovered_{i}_{ind.tree.hash}",
-                description=f"GP-discovered strategy: {ind.tree.formula}",
-                version="1.0",
-                signals=[],  # Will be populated by expression evaluator
-                position_sizing={"method": "fixed", "size": 1.0},
-                metadata={
-                    "formula": ind.tree.formula,
-                    "tree_hash": ind.tree.hash,
-                    "fitness": ind.fitness,
-                    "complexity": ind.tree.complexity_score(),
-                },
-            )
-
+            if not isinstance(ind.genome, ExpressionGenome):
+                continue
+            
+            # Delegate to ExpressionGenome.to_strategy_genome
+            genome = ind.genome.to_strategy_genome()
+            # Update metadata with fitness
+            genome.metadata["fitness"] = ind.fitness
+            
             genomes.append(genome)
 
         return genomes

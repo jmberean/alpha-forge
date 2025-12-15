@@ -232,8 +232,10 @@ class TestGetMacroFeature:
             datetime(2024, 1, 15, 12, 0),
         )
 
+        # Should get a value (mocked)
         assert gdp is not None
-        assert isinstance(gdp, float)
+        assert isinstance(gdp, (float, int))
+        assert gdp > 0
 
     def test_get_macro_feature_not_available(self):
         """Test getting feature that's not available yet."""

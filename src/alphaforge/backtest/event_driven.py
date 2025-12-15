@@ -16,6 +16,9 @@ import pandas as pd
 from alphaforge.backtest.engine import BacktestResult
 from alphaforge.backtest.metrics import PerformanceMetrics
 from alphaforge.strategy.genome import StrategyGenome
+from alphaforge.strategy.signals import SignalGenerator
+from alphaforge.features.technical import TechnicalIndicators
+from alphaforge.data.schema import OHLCVData
 
 
 class OrderSide(Enum):
@@ -179,22 +182,25 @@ class EventDrivenEngine:
     def run(
         self,
         strategy: StrategyGenome,
-        data: pd.DataFrame,
+        data: pd.DataFrame | OHLCVData,
     ) -> BacktestResult:
         """
         Run event-driven backtest.
 
         Args:
             strategy: Strategy to test
-            data: OHLCV data
+            data: OHLCV data (DataFrame or OHLCVData object)
 
         Returns:
             BacktestResult with realistic execution
-
-        Note:
-            This is a simplified event-driven engine for MVP7.
-            In production, use NautilusTrader for full functionality.
         """
+        # Handle OHLCVData input
+        if hasattr(data, "df"):
+            symbol = data.symbol
+            data = data.df
+        else:
+            symbol = "UNKNOWN"
+
         # Reset state
         self.orders = []
         self.fills = []
@@ -202,31 +208,93 @@ class EventDrivenEngine:
         self.cash = 100000.0
 
         portfolio_values = []
+        position_history = []
         returns = []
 
+        # Pre-calculate indicators and signals (Batch mode for efficiency)
+        # This replaces the bar-by-bar indicator calculation which is slow/complex
+        df_features = TechnicalIndicators.compute_all(data)
+        signals_df = SignalGenerator(strategy).generate(df_features)
+        
+        entry_signals = signals_df["entry_signal"]
+        exit_signals = signals_df["exit_signal"]
+
+        # Track active trade state for SL/TP
+        entry_price = 0.0
+        
         # Event loop - process each bar
         for idx in range(len(data)):
             current_bar = data.iloc[idx]
             current_time = current_bar.name
+            current_close = current_bar["close"]
 
-            # 1. Generate signals (simplified)
-            signal = self._generate_signal(strategy, data.iloc[:idx + 1])
+            # 1. Check for signals
+            # Note: Signals are calculated on Close, so they trigger orders for NEXT bar?
+            # Or simplified: Signal at T triggers order at T (assumes instant decision at close)
+            # For "Event Driven" with latency, we generate order now, it fills later.
+            
+            is_long = self.positions.get(current_time, 0.0) > 0
+            signal = 0
+            
+            if not is_long:
+                if entry_signals.iloc[idx]:
+                    signal = 1
+            else:
+                # Check exit signal
+                if exit_signals.iloc[idx]:
+                    signal = -1
+                
+                # Check Stop Loss / Take Profit (intra-bar or close based)
+                # Using close for simplicity, mimicking PositionTracker logic
+                elif entry_price > 0:
+                    pct_return = (current_close - entry_price) / entry_price
+                    
+                    if strategy.stop_loss_pct and pct_return <= -strategy.stop_loss_pct:
+                        signal = -1
+                    elif strategy.take_profit_pct and pct_return >= strategy.take_profit_pct:
+                        signal = -1
+                    # Note: Max holding days would need date tracking
 
             # 2. Generate order if signal
             if signal != 0:
+                # If buying, record expected entry price for SL/TP tracking (approx)
+                # Actual entry price will be set on Fill
                 order = self._create_order(
                     signal=signal,
-                    price=current_bar["close"],
+                    price=current_close,
                     timestamp=current_time,
                 )
                 self.orders.append(order)
 
             # 3. Process pending orders (with latency)
             self._process_orders(current_bar)
+            
+            # Update entry price if we just got filled
+            # (Simplified: find last fill)
+            if self.fills and self.fills[-1].timestamp == current_time and signal == 1:
+                 entry_price = self.fills[-1].price
 
             # 4. Calculate portfolio value
             position = self.positions.get(current_time, 0.0)
-            position_value = position * current_bar["close"]
+            # If we didn't trade today, we still hold the previous position
+            # But wait, self.positions only has entries for *change* dates if we rely on .get() with default?
+            # No, logic above says: if order filled, update self.positions[current_time].
+            # We need to carry forward position from previous step if no trade.
+            # Ideally self.positions should just track *current* qty, not history dict.
+            
+            # Let's fix logic:
+            # We use `self.positions` as a dict of "position at end of day T".
+            # But really we just need `current_position`.
+            
+            if current_time not in self.positions:
+                 # Carry forward previous day
+                 prev_time = data.iloc[idx-1].name if idx > 0 else None
+                 self.positions[current_time] = self.positions.get(prev_time, 0.0)
+            
+            position = self.positions[current_time]
+            position_history.append(position)
+            
+            position_value = position * current_close
             portfolio_value = self.cash + position_value
 
             portfolio_values.append(portfolio_value)
@@ -245,10 +313,16 @@ class EventDrivenEngine:
         metrics = PerformanceMetrics.from_returns(returns_series)
 
         return BacktestResult(
-            strategy_id=strategy.id,
+            strategy=strategy, # Fix: pass object, not ID
             metrics=metrics,
             equity_curve=portfolio_series,
             returns=returns_series,
+            positions=pd.Series(position_history, index=data.index), # Add positions
+            num_trades=len(self.fills) // 2, # Approx
+            trades=self.fills, # Pass fills as trade history
+            start_date=data.index[0].to_pydatetime(),
+            end_date=data.index[-1].to_pydatetime(),
+            data_symbol=symbol
         )
 
     def _generate_signal(

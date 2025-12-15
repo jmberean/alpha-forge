@@ -37,9 +37,19 @@ export interface ValidationResult {
     sortino_ratio: number
     total_return: number
     volatility: number
+    num_trades?: number
+    win_rate?: number
+    profit_factor?: number
+    avg_win?: number
+    avg_loss?: number
   }
   timestamp: string
   logs: string[]
+  equity_curve?: {
+    date: string
+    equity: number
+    benchmark: number
+  }[]
 }
 
 export interface Strategy {

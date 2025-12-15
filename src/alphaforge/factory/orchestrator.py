@@ -7,10 +7,14 @@ Coordinates strategy generation from multiple sources.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Any
+import random
 
-from alphaforge.factory.genetic import EvolutionConfig, GeneticStrategyEvolver
 from alphaforge.strategy.genome import StrategyGenome
+from alphaforge.discovery.evolution.nsga3 import NSGA3Optimizer, NSGA3Config
+from alphaforge.evolution.genomes import TemplateGenome
+from alphaforge.evolution.protocol import Evolvable
+from alphaforge.strategy.templates import StrategyTemplates
 
 
 @dataclass
@@ -113,8 +117,9 @@ class StrategyFactory:
         if self.config.use_genetic:
             self._generate_genetic()
 
-        # 2. Template variations
-        self._generate_template_variations()
+        # 2. Template variations (if needed to fill pool)
+        if len(self.pool.strategies) < self.config.target_strategies:
+            self._generate_template_variations()
 
         # 3. Deduplicate
         self.pool.deduplicate()
@@ -125,21 +130,53 @@ class StrategyFactory:
         return self.pool
 
     def _generate_genetic(self) -> None:
-        """Generate strategies using genetic evolution."""
-        evolver = GeneticStrategyEvolver(
-            fitness_function=self.fitness_function,
-            config=EvolutionConfig(
-                population_size=self.config.genetic_population,
-                n_generations=self.config.genetic_generations,
-            ),
+        """Generate strategies using genetic evolution via NSGA3Optimizer."""
+        
+        # Generator for random template strategies
+        def generator() -> Evolvable:
+            template_choice = random.choice([
+                StrategyTemplates.sma_crossover,
+                StrategyTemplates.rsi_mean_reversion,
+                StrategyTemplates.macd_crossover,
+                StrategyTemplates.bollinger_breakout,
+                StrategyTemplates.dual_momentum,
+            ])
+            # Create default template to start with
+            return TemplateGenome(template_choice())
+
+        # Fitness wrapper
+        def fitness_wrapper(genome: Evolvable) -> float:
+            if isinstance(genome, TemplateGenome):
+                return self.fitness_function(genome.genome)
+            return -999.0
+
+        # Configure NSGA-III
+        # Factory optimizes primarily for Sharpe (single objective usually),
+        # but we can use NSGA-III for robustness.
+        # Here we just map "sharpe" to the fitness function.
+        fitness_functions = {"sharpe": fitness_wrapper}
+        
+        nsga3_config = NSGA3Config(
+            population_size=self.config.genetic_population,
+            n_generations=self.config.genetic_generations,
+            n_objectives=1, # Single objective for now to match legacy behavior
+            n_reference_points=1, # Simple sorting
+            diversity_injection=0, # Disable injection for parameter tuning focus
         )
 
-        result = evolver.evolve()
+        optimizer = NSGA3Optimizer(
+            fitness_functions=fitness_functions,
+            generator=generator,
+            config=nsga3_config,
+        )
+
+        result = optimizer.optimize()
 
         # Add all population to pool
-        for strategy in result.population:
-            fitness = strategy.fitness if hasattr(strategy, 'fitness') else self.fitness_function(strategy)
-            self.pool.add_strategy(strategy, fitness)
+        for ind in result.population.individuals:
+            if isinstance(ind.genome, TemplateGenome):
+                sharpe = ind.fitness.get("sharpe", -999.0)
+                self.pool.add_strategy(ind.genome.genome, sharpe)
 
     def _generate_template_variations(self) -> None:
         """Generate variations of strategy templates."""

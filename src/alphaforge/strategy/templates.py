@@ -386,6 +386,34 @@ class StrategyTemplates:
             tags=["momentum", "tactical-allocation"],
         )
 
+    @staticmethod
+    def buy_and_hold() -> StrategyGenome:
+        """
+        Buy and Hold Strategy.
+
+        Entry: First day of the backtest.
+        Exit: Last day of the backtest.
+        """
+        return StrategyGenome(
+            name="Buy and Hold",
+            description="Benchmark strategy that buys on the first day and holds until the end.",
+            entry_rules=RuleGroup(
+                rules=[
+                    Rule(
+                        indicator="close",
+                        operator=Operator.GTE,
+                        value=0,
+                        description="Enter on first day (rule is always true)",
+                    )
+                ]
+            ),
+            exit_rules=RuleGroup(rules=[]),  # No exit rules
+            stop_loss_pct=None,
+            take_profit_pct=None,
+            max_holding_days=None,
+            tags=["benchmark"],
+        )
+
     @classmethod
     def all_templates(cls) -> list[StrategyGenome]:
         """Get all available strategy templates."""
@@ -397,6 +425,7 @@ class StrategyTemplates:
             cls.macd_crossover(),
             cls.volatility_breakout(),
             cls.dual_momentum(),
+            cls.buy_and_hold(),
         ]
 
     @classmethod
@@ -410,6 +439,7 @@ class StrategyTemplates:
             "macd_crossover": cls.macd_crossover,
             "volatility_breakout": cls.volatility_breakout,
             "dual_momentum": cls.dual_momentum,
+            "buy_and_hold": cls.buy_and_hold,
         }
         if name not in templates:
             raise ValueError(

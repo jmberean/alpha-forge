@@ -3,36 +3,25 @@
 import { motion } from 'framer-motion'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 
-// Generate realistic equity curve data
-const generateEquityCurve = () => {
-  const data = []
-  let value = 100000
-  const dates = []
-  const startDate = new Date('2020-01-01')
-
-  for (let i = 0; i < 252 * 4; i++) { // 4 years of trading days
-    const date = new Date(startDate)
-    date.setDate(date.getDate() + i)
-
-    // Simulate realistic equity curve with drift and volatility
-    const drift = 0.0003 // ~18% annual
-    const volatility = 0.012
-    const returns = drift + volatility * (Math.random() - 0.5) * 2
-    value *= (1 + returns)
-
-    if (i % 5 === 0) { // Sample every 5 days for performance
-      data.push({
-        date: date.toISOString().split('T')[0],
-        equity: Math.round(value),
-        benchmark: Math.round(100000 * Math.pow(1.10, i / 252)), // 10% annual
-      })
-    }
-  }
-
-  return data
+interface ChartDataPoint {
+  date: string
+  equity: number
+  benchmark: number
 }
 
-const data = generateEquityCurve()
+interface ChartMetrics {
+  total_return: number
+  num_trades?: number
+  win_rate?: number
+  profit_factor?: number
+  avg_win?: number
+  avg_loss?: number
+}
+
+interface BacktestChartProps {
+  data?: ChartDataPoint[]
+  metrics?: ChartMetrics
+}
 
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -51,10 +40,27 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null
 }
 
-export default function BacktestChart() {
+export default function BacktestChart({ data = [], metrics }: BacktestChartProps) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="border border-terminal-border bg-terminal-panel/50 backdrop-blur-sm rounded-lg p-6 flex items-center justify-center h-64">
+        <span className="text-terminal-text/60 font-mono text-sm">No data available</span>
+      </div>
+    )
+  }
+
   const finalEquity = data[data.length - 1].equity
   const initialEquity = data[0].equity
-  const totalReturn = ((finalEquity - initialEquity) / initialEquity * 100).toFixed(1)
+  
+  // Use passed metric if available, otherwise calculate
+  const totalReturn = metrics?.total_return 
+    ? (metrics.total_return * 100).toFixed(1)
+    : ((finalEquity - initialEquity) / initialEquity * 100).toFixed(1)
+
+  // Calculate period in years
+  const start = new Date(data[0].date)
+  const end = new Date(data[data.length - 1].date)
+  const years = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
 
   return (
     <motion.div
@@ -77,7 +83,7 @@ export default function BacktestChart() {
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-0.5 bg-terminal-amber" />
-            <span className="text-terminal-text/60">SPY Benchmark</span>
+            <span className="text-terminal-text/60">Benchmark</span>
           </div>
         </div>
       </div>
@@ -93,13 +99,13 @@ export default function BacktestChart() {
         <div className="bg-terminal-bg/50 border border-terminal-border rounded p-3">
           <div className="text-[10px] font-mono text-terminal-text/40 mb-1">TOTAL RETURN</div>
           <div className="text-lg font-mono font-bold text-terminal-green metric-value">
-            +{totalReturn}%
+            {Number(totalReturn) > 0 ? '+' : ''}{totalReturn}%
           </div>
         </div>
         <div className="bg-terminal-bg/50 border border-terminal-border rounded p-3">
           <div className="text-[10px] font-mono text-terminal-text/40 mb-1">PERIOD</div>
           <div className="text-lg font-mono font-bold text-terminal-amber metric-value">
-            4.0Y
+            {years.toFixed(1)}Y
           </div>
         </div>
       </div>
@@ -113,14 +119,16 @@ export default function BacktestChart() {
               stroke="#1a1f29"
               tick={{ fill: '#b3b8c4', fontSize: 10, fontFamily: 'JetBrains Mono' }}
               tickFormatter={(value) => new Date(value).getFullYear().toString()}
+              minTickGap={30}
             />
             <YAxis
               stroke="#1a1f29"
               tick={{ fill: '#b3b8c4', fontSize: 10, fontFamily: 'JetBrains Mono' }}
               tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+              domain={['auto', 'auto']}
             />
             <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={100000} stroke="#1a1f29" strokeDasharray="3 3" />
+            <ReferenceLine y={initialEquity} stroke="#1a1f29" strokeDasharray="3 3" />
             <Line
               type="monotone"
               dataKey="benchmark"
@@ -140,25 +148,37 @@ export default function BacktestChart() {
         </ResponsiveContainer>
       </div>
 
-      {/* Trade Stats */}
-      <div className="mt-6 pt-6 border-t border-terminal-border grid grid-cols-4 gap-4 text-center">
-        <div>
-          <div className="text-[10px] font-mono text-terminal-text/40 mb-1">TRADES</div>
-          <div className="text-sm font-mono font-semibold text-terminal-text metric-value">487</div>
+      {/* Trade Stats (only if metrics provided) */}
+      {metrics && metrics.num_trades !== undefined && (
+        <div className="mt-6 pt-6 border-t border-terminal-border grid grid-cols-4 gap-4 text-center">
+          <div>
+            <div className="text-[10px] font-mono text-terminal-text/40 mb-1">TRADES</div>
+            <div className="text-sm font-mono font-semibold text-terminal-text metric-value">
+              {metrics.num_trades}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono text-terminal-text/40 mb-1">WIN RATE</div>
+            <div className="text-sm font-mono font-semibold text-terminal-green metric-value">
+              {(metrics.win_rate! * 100).toFixed(1)}%
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono text-terminal-text/40 mb-1">PROFIT FACTOR</div>
+            <div className="text-sm font-mono font-semibold text-terminal-green metric-value">
+              {metrics.profit_factor?.toFixed(2) || '-'}
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono text-terminal-text/40 mb-1">AVG WIN/LOSS</div>
+            <div className="text-sm font-mono font-semibold text-terminal-amber metric-value">
+              {(metrics.avg_win && metrics.avg_loss) 
+                ? (metrics.avg_win / metrics.avg_loss).toFixed(2) 
+                : '-'}
+            </div>
+          </div>
         </div>
-        <div>
-          <div className="text-[10px] font-mono text-terminal-text/40 mb-1">WIN RATE</div>
-          <div className="text-sm font-mono font-semibold text-terminal-green metric-value">56.3%</div>
-        </div>
-        <div>
-          <div className="text-[10px] font-mono text-terminal-text/40 mb-1">PROFIT FACTOR</div>
-          <div className="text-sm font-mono font-semibold text-terminal-green metric-value">1.82</div>
-        </div>
-        <div>
-          <div className="text-[10px] font-mono text-terminal-text/40 mb-1">AVG WIN/LOSS</div>
-          <div className="text-sm font-mono font-semibold text-terminal-amber metric-value">1.45</div>
-        </div>
-      </div>
+      )}
     </motion.div>
   )
 }

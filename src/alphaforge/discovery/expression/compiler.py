@@ -15,6 +15,7 @@ from typing import Any, Callable
 import pandas as pd
 import numpy as np
 import numba
+import weakref
 
 from alphaforge.discovery.expression.nodes import (
     Node,
@@ -90,7 +91,7 @@ def _numba_mean_abs_deviation(arr: np.ndarray) -> float:
 # Data preparation cache - avoids redundant returns/vwap computation
 # =============================================================================
 
-_PREPARED_DATA_CACHE: dict[int, pd.DataFrame] = {}
+_PREPARED_DATA_CACHE: dict[int, tuple[weakref.ref[pd.DataFrame], pd.DataFrame]] = {}
 _CACHE_MAX_SIZE = 10  # Keep last 10 prepared DataFrames
 
 
@@ -98,8 +99,11 @@ def _get_prepared_data(data: pd.DataFrame) -> pd.DataFrame:
     """Get prepared data from cache or compute and cache it."""
     cache_key = id(data)
 
-    if cache_key in _PREPARED_DATA_CACHE:
-        return _PREPARED_DATA_CACHE[cache_key]
+    cached = _PREPARED_DATA_CACHE.get(cache_key)
+    if cached is not None:
+        ref, prepared = cached
+        if ref() is data:
+            return prepared
 
     # Prepare the data
     prepared = data.copy()
@@ -119,7 +123,7 @@ def _get_prepared_data(data: pd.DataFrame) -> pd.DataFrame:
         oldest_key = next(iter(_PREPARED_DATA_CACHE))
         del _PREPARED_DATA_CACHE[oldest_key]
 
-    _PREPARED_DATA_CACHE[cache_key] = prepared
+    _PREPARED_DATA_CACHE[cache_key] = (weakref.ref(data), prepared)
     return prepared
 
 
@@ -168,9 +172,40 @@ class ExpressionCompiler:
 
     # Operator implementations
     OPERATORS: dict[str, Callable[..., pd.Series]] = {}
+    DEFAULT_SINGLE_SERIES_WINDOW = 252
 
     def __init__(self) -> None:
         self._register_operators()
+
+    @classmethod
+    def _rank_single_series(cls, x: pd.Series) -> pd.Series:
+        """
+        Point-in-time-safe "rank" for a single time series.
+
+        Notes:
+        - In true cross-sectional alpha research, rank/scale/zscore operate across assets at each timestamp.
+        - AlphaForge discovery currently evaluates a single asset time series, so we implement a trailing-window
+          approximation to avoid full-sample (lookahead) leakage.
+        """
+        w = cls.DEFAULT_SINGLE_SERIES_WINDOW
+        return x.rolling(w, min_periods=2, center=False).apply(
+            _numba_rank_in_window, raw=True, engine="numba"
+        )
+
+    @classmethod
+    def _zscore_single_series(cls, x: pd.Series) -> pd.Series:
+        """Point-in-time-safe z-score using a trailing window."""
+        w = cls.DEFAULT_SINGLE_SERIES_WINDOW
+        mean = x.rolling(w, min_periods=20, center=False).mean()
+        std = x.rolling(w, min_periods=20, center=False).std().replace(0, np.nan)
+        return (x - mean) / std
+
+    @classmethod
+    def _scale_single_series(cls, x: pd.Series) -> pd.Series:
+        """Point-in-time-safe scaling using a trailing window."""
+        w = cls.DEFAULT_SINGLE_SERIES_WINDOW
+        denom = x.abs().rolling(w, min_periods=20, center=False).sum().replace(0, np.nan)
+        return x / denom
 
     def _register_operators(self) -> None:
         """Register all operator implementations."""
@@ -204,10 +239,10 @@ class ExpressionCompiler:
             "ts_corr": lambda x, y, w: x.rolling(int(w), min_periods=int(w)//2).corr(y),
             "ts_cov": lambda x, y, w: x.rolling(int(w), min_periods=int(w)//2).cov(y),
 
-            # Cross-sectional (operates on single series)
-            "rank": lambda x: x.rank(pct=True),
-            "scale": lambda x: x / x.abs().sum() if x.abs().sum() != 0 else x * 0,
-            "zscore": lambda x: (x - x.mean()) / x.std() if x.std() != 0 else x * 0,
+            # Single-series normalization (PIT-safe approximations)
+            "rank": self._rank_single_series,
+            "scale": self._scale_single_series,
+            "zscore": self._zscore_single_series,
 
             # Comparison operators
             "gt": lambda x, y: (x > y).astype(float),

@@ -58,6 +58,8 @@ mlartifacts/
 # Data cache (downloaded market data)
 data/cache/
 data/features/
+src/data/cache/
+src/data/features/
 
 # SQLite databases
 *.db

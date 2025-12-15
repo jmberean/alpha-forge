@@ -26,7 +26,7 @@ from alphaforge.validation.dsr import DeflatedSharpeRatio, DSRResult
 from alphaforge.validation.pbo import (
     PBOResult,
     ProbabilityOfOverfitting,
-    calculate_pbo_from_cpcv,
+    calculate_probability_of_loss,
 )
 from alphaforge.validation.spa import SPAResult, SPATest
 from alphaforge.validation.stress import StressTestResult, StressTester
@@ -279,8 +279,8 @@ class ValidationPipeline:
         # Stage 4: PBO calculation
         pbo_result = None
         if cpcv_result:
-            logger.info("Stage 4: Calculating PBO...")
-            pbo_result = calculate_pbo_from_cpcv(
+            logger.info("Stage 4: Calculating Probability of Loss (single-strategy PBO proxy)...")
+            pbo_result = calculate_probability_of_loss(
                 cpcv_result.sharpe_distribution,
                 threshold=self.thresholds.pbo_deploy,
             )

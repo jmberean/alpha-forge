@@ -4,11 +4,12 @@ Handles population initialization, diversity maintenance, and statistics.
 """
 
 from dataclasses import dataclass, field
-from typing import Iterator
+from typing import Iterator, Callable
 import random
 
-from alphaforge.discovery.expression.tree import ExpressionTree, TreeGenerator
+from alphaforge.evolution.protocol import Evolvable
 from alphaforge.discovery.operators.selection import Individual
+from alphaforge.evolution.genomes import ExpressionGenome
 
 
 @dataclass
@@ -17,8 +18,7 @@ class PopulationStats:
 
     size: int
     unique_formulas: int
-    avg_size: float
-    avg_depth: float
+    avg_complexity: float
     min_fitness: dict[str, float]
     max_fitness: dict[str, float]
     avg_fitness: dict[str, float]
@@ -34,7 +34,7 @@ class Population:
 
     individuals: list[Individual] = field(default_factory=list)
     generation: int = 0
-    _formula_hashes: set[str] = field(default_factory=set)
+    _genome_hashes: set[str] = field(default_factory=set)
 
     def __len__(self) -> int:
         return len(self.individuals)
@@ -54,26 +54,26 @@ class Population:
         Returns:
             True if added (was unique), False if duplicate
         """
-        formula_hash = individual.tree.hash
+        genome_hash = individual.genome.hash
 
-        if formula_hash in self._formula_hashes:
+        if genome_hash in self._genome_hashes:
             return False
 
-        self._formula_hashes.add(formula_hash)
+        self._genome_hashes.add(genome_hash)
         self.individuals.append(individual)
         return True
 
-    def add_tree(self, tree: ExpressionTree) -> bool:
-        """Add a tree as a new individual with empty fitness.
+    def add_genome(self, genome: Evolvable) -> bool:
+        """Add a genome as a new individual with empty fitness.
 
         Args:
-            tree: Expression tree to add
+            genome: Evolvable genome to add
 
         Returns:
             True if added, False if duplicate
         """
         individual = Individual(
-            tree=tree,
+            genome=genome,
             fitness={},
             rank=0,
             crowding_distance=0.0,
@@ -84,12 +84,12 @@ class Population:
         """Remove an individual from the population."""
         if individual in self.individuals:
             self.individuals.remove(individual)
-            self._formula_hashes.discard(individual.tree.hash)
+            self._genome_hashes.discard(individual.genome.hash)
 
     def clear(self) -> None:
         """Clear all individuals."""
         self.individuals.clear()
-        self._formula_hashes.clear()
+        self._genome_hashes.clear()
 
     def get_pareto_front(self) -> list[Individual]:
         """Get individuals on the Pareto front (rank 0)."""
@@ -111,16 +111,14 @@ class Population:
             return PopulationStats(
                 size=0,
                 unique_formulas=0,
-                avg_size=0.0,
-                avg_depth=0.0,
+                avg_complexity=0.0,
                 min_fitness={},
                 max_fitness={},
                 avg_fitness={},
                 pareto_front_size=0,
             )
 
-        sizes = [ind.tree.size for ind in self.individuals]
-        depths = [ind.tree.depth for ind in self.individuals]
+        complexities = [ind.genome.complexity_score() for ind in self.individuals]
 
         # Aggregate fitness stats
         objectives = set()
@@ -144,61 +142,63 @@ class Population:
 
         return PopulationStats(
             size=len(self.individuals),
-            unique_formulas=len(self._formula_hashes),
-            avg_size=sum(sizes) / len(sizes),
-            avg_depth=sum(depths) / len(depths),
+            unique_formulas=len(self._genome_hashes),
+            avg_complexity=sum(complexities) / len(complexities),
             min_fitness=min_fitness,
             max_fitness=max_fitness,
             avg_fitness=avg_fitness,
             pareto_front_size=len(self.get_pareto_front()),
         )
 
-    def to_trees(self) -> list[ExpressionTree]:
-        """Extract all trees from population."""
-        return [ind.tree for ind in self.individuals]
+    def to_genomes(self) -> list[Evolvable]:
+        """Extract all genomes from population."""
+        return [ind.genome for ind in self.individuals]
 
 
 def create_initial_population(
     size: int,
-    generator: TreeGenerator | None = None,
+    generator: Callable[[], Evolvable],
     seed: int | None = None,
-    warm_start_trees: list[ExpressionTree] | None = None,
+    warm_start_genomes: list[Evolvable] | None = None,
 ) -> Population:
     """Create initial population with optional warm start.
 
     Args:
         size: Target population size
-        generator: Tree generator (created if not provided)
+        generator: Function to generate new genomes
         seed: Random seed
-        warm_start_trees: Optional trees to include in initial population
+        warm_start_genomes: Optional genomes to include in initial population
 
     Returns:
         Population with unique individuals
     """
-    rng = random.Random(seed)
-    generator = generator or TreeGenerator(seed=seed)
-
+    # rng = random.Random(seed) # Not needed if generator handles randomness internally or we assume externally managed
+    
     population = Population()
 
-    # Add warm start trees first
-    if warm_start_trees:
-        for tree in warm_start_trees:
+    # Add warm start genomes first
+    if warm_start_genomes:
+        for genome in warm_start_genomes:
             if len(population) >= size:
                 break
             try:
-                population.add_tree(tree.clone())
+                # Assuming clone logic if needed, but genomes should be immutable/safe
+                # Actually, warm start items should be fresh copies?
+                # Evolvable doesn't mandate clone(). Assume caller provides fresh instances or we rely on immutability.
+                # ExpressionTree is immutable-ish. TemplateGenome creates copy on mutation.
+                population.add_genome(genome)
             except ValueError:
                 continue
 
-    # Fill remaining with random trees
+    # Fill remaining with random genomes
     attempts = 0
     max_attempts = size * 10
 
     while len(population) < size and attempts < max_attempts:
         attempts += 1
         try:
-            tree = generator.generate(method="ramped")
-            population.add_tree(tree)
+            genome = generator()
+            population.add_genome(genome)
         except (ValueError, RecursionError):
             continue
 
@@ -208,7 +208,7 @@ def create_initial_population(
 def inject_diversity(
     population: Population,
     n_inject: int,
-    generator: TreeGenerator,
+    generator: Callable[[], Evolvable],
     rng: random.Random | None = None,
 ) -> int:
     """Inject random individuals to maintain diversity.
@@ -218,7 +218,7 @@ def inject_diversity(
     Args:
         population: Population to modify
         n_inject: Number of individuals to inject
-        generator: Tree generator
+        generator: Function to generate new genomes
         rng: Random number generator
 
     Returns:
@@ -247,8 +247,8 @@ def inject_diversity(
     while injected < n_inject and attempts < max_attempts:
         attempts += 1
         try:
-            tree = generator.generate(method="ramped")
-            if population.add_tree(tree):
+            genome = generator()
+            if population.add_genome(genome):
                 injected += 1
         except (ValueError, RecursionError):
             continue
