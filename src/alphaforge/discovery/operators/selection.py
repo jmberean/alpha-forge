@@ -3,11 +3,18 @@
 Provides selection strategies:
 - Tournament selection: Compare random individuals
 - Lexicase selection: Filter by random objective ordering
+
+Performance optimizations:
+- Vectorized Pareto ranking using NumPy (O(n²) vs O(n³))
+- Vectorized crowding distance calculation
 """
+
+from __future__ import annotations
 
 import random
 from typing import TypeVar, Callable
 from dataclasses import dataclass
+import numpy as np
 
 from alphaforge.discovery.expression.tree import ExpressionTree
 
@@ -175,6 +182,58 @@ def dominates(fitness1: dict[str, float], fitness2: dict[str, float]) -> bool:
     return better_in_any and not dominated_in_any
 
 
+def _build_fitness_matrix(
+    population: list[Individual], objectives: list[str]
+) -> np.ndarray:
+    """Build fitness matrix from population for vectorized operations.
+
+    Args:
+        population: List of individuals
+        objectives: List of objective names
+
+    Returns:
+        Array of shape (n_individuals, n_objectives)
+    """
+    n = len(population)
+    m = len(objectives)
+    fitness_matrix = np.zeros((n, m))
+
+    for i, ind in enumerate(population):
+        for j, obj in enumerate(objectives):
+            fitness_matrix[i, j] = ind.fitness.get(obj, float("-inf"))
+
+    return fitness_matrix
+
+
+def _vectorized_dominates(fitness_matrix: np.ndarray) -> np.ndarray:
+    """Compute dominance matrix using vectorized NumPy operations.
+
+    Args:
+        fitness_matrix: Array of shape (n, m) where n=individuals, m=objectives
+
+    Returns:
+        Boolean matrix of shape (n, n) where [i,j]=True means i dominates j
+    """
+    n = len(fitness_matrix)
+
+    # Broadcasting: compare all pairs
+    # fitness_matrix[:, None, :] shape: (n, 1, m)
+    # fitness_matrix[None, :, :] shape: (1, n, m)
+
+    # i >= j for all objectives
+    geq = fitness_matrix[:, None, :] >= fitness_matrix[None, :, :]  # (n, n, m)
+    all_geq = np.all(geq, axis=2)  # (n, n)
+
+    # i > j for at least one objective
+    gt = fitness_matrix[:, None, :] > fitness_matrix[None, :, :]  # (n, n, m)
+    any_gt = np.any(gt, axis=2)  # (n, n)
+
+    # i dominates j if all_geq[i,j] AND any_gt[i,j]
+    dominates_matrix = all_geq & any_gt
+
+    return dominates_matrix
+
+
 def compute_pareto_ranks(population: list[Individual]) -> None:
     """Compute Pareto ranks for all individuals in place.
 
@@ -182,31 +241,49 @@ def compute_pareto_ranks(population: list[Individual]) -> None:
     Rank 1 = Dominated only by rank 0
     etc.
 
+    Vectorized implementation using NumPy for O(n²) performance.
+
     Args:
         population: Population to rank (modified in place)
     """
-    remaining = set(range(len(population)))
+    if not population:
+        return
+
+    n = len(population)
+    objectives = list(population[0].fitness.keys())
+
+    # Build fitness matrix and compute dominance
+    fitness_matrix = _build_fitness_matrix(population, objectives)
+    dominates_matrix = _vectorized_dominates(fitness_matrix)
+
+    # Track remaining individuals and ranks
+    remaining = np.ones(n, dtype=bool)
+    ranks = np.zeros(n, dtype=int)
     current_rank = 0
 
-    while remaining:
-        # Find non-dominated in remaining
-        non_dominated = []
+    while remaining.any():
+        # For each remaining individual i, check if any remaining j dominates it
+        # dominates_matrix[j, i] = True means j dominates i
+        # So we check column i for any True values from remaining individuals
+        # Mask the dominance matrix to only consider remaining dominators
+        masked_dom = dominates_matrix & remaining[:, None]  # (n, n) - row j only counts if j is remaining
+        # For individual i, check if any j dominates it: sum along axis=0
+        is_dominated = masked_dom.any(axis=0) & remaining
 
-        for i in remaining:
-            dominated = False
-            for j in remaining:
-                if i != j and dominates(population[j].fitness, population[i].fitness):
-                    dominated = True
-                    break
-            if not dominated:
-                non_dominated.append(i)
+        # Non-dominated in remaining = remaining AND NOT dominated
+        non_dominated = remaining & ~is_dominated
 
-        # Assign rank
-        for i in non_dominated:
-            population[i].rank = current_rank
-            remaining.remove(i)
+        # Assign rank to non-dominated
+        ranks[non_dominated] = current_rank
+
+        # Remove from remaining
+        remaining[non_dominated] = False
 
         current_rank += 1
+
+    # Apply ranks to individuals
+    for i, ind in enumerate(population):
+        ind.rank = int(ranks[i])
 
 
 def compute_crowding_distance(population: list[Individual]) -> None:
@@ -215,41 +292,48 @@ def compute_crowding_distance(population: list[Individual]) -> None:
     Crowding distance measures how isolated an individual is in objective space.
     Higher distance = more isolated = more valuable for diversity.
 
+    Vectorized implementation using NumPy argsort.
+
     Args:
         population: Population (modified in place)
     """
-    if len(population) < 2:
+    n = len(population)
+    if n < 2:
         for ind in population:
             ind.crowding_distance = float("inf")
         return
 
     # Reset distances
-    for ind in population:
-        ind.crowding_distance = 0.0
+    distances = np.zeros(n)
 
-    # Get objective names
+    # Get objective names and build matrix
     objectives = list(population[0].fitness.keys())
+    fitness_matrix = _build_fitness_matrix(population, objectives)
 
-    for obj in objectives:
-        # Sort by this objective
-        sorted_pop = sorted(population, key=lambda ind: ind.fitness.get(obj, 0))
+    for j in range(len(objectives)):
+        # Sort indices by this objective
+        sorted_idx = np.argsort(fitness_matrix[:, j])
 
         # Boundary points get infinite distance
-        sorted_pop[0].crowding_distance = float("inf")
-        sorted_pop[-1].crowding_distance = float("inf")
+        distances[sorted_idx[0]] = float("inf")
+        distances[sorted_idx[-1]] = float("inf")
 
         # Range for normalization
-        obj_range = (
-            sorted_pop[-1].fitness.get(obj, 0) - sorted_pop[0].fitness.get(obj, 0)
-        )
+        obj_range = fitness_matrix[sorted_idx[-1], j] - fitness_matrix[sorted_idx[0], j]
 
         if obj_range == 0:
             continue
 
-        # Interior points
-        for i in range(1, len(sorted_pop) - 1):
-            distance = (
-                sorted_pop[i + 1].fitness.get(obj, 0)
-                - sorted_pop[i - 1].fitness.get(obj, 0)
-            ) / obj_range
-            sorted_pop[i].crowding_distance += distance
+        # Interior points: distance += (f[i+1] - f[i-1]) / range
+        for i in range(1, n - 1):
+            idx = sorted_idx[i]
+            if distances[idx] < float("inf"):
+                idx_prev = sorted_idx[i - 1]
+                idx_next = sorted_idx[i + 1]
+                distances[idx] += (
+                    fitness_matrix[idx_next, j] - fitness_matrix[idx_prev, j]
+                ) / obj_range
+
+    # Apply distances to individuals
+    for i, ind in enumerate(population):
+        ind.crowding_distance = float(distances[i])

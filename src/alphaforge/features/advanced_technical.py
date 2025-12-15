@@ -2,10 +2,68 @@
 Advanced technical indicators beyond basic SMA/RSI/MACD.
 
 Implements 30+ indicators for comprehensive technical analysis.
+
+Performance optimizations:
+- Numba JIT compilation for hot path rolling apply functions
 """
+
+from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import numba
+
+
+# =============================================================================
+# Numba JIT-compiled functions for hot path indicators
+# =============================================================================
+
+@numba.jit(nopython=True, cache=True)
+def _numba_mean_abs_deviation(arr: np.ndarray) -> float:
+    """Numba-optimized mean absolute deviation for CCI."""
+    n = len(arr)
+    if n == 0:
+        return np.nan
+    mean = 0.0
+    for i in range(n):
+        mean += arr[i]
+    mean /= n
+    mad = 0.0
+    for i in range(n):
+        mad += abs(arr[i] - mean)
+    return mad / n
+
+
+@numba.jit(nopython=True, cache=True)
+def _numba_aroon_up(arr: np.ndarray) -> float:
+    """Numba-optimized Aroon Up calculation."""
+    n = len(arr)
+    if n == 0:
+        return np.nan
+    max_idx = 0
+    max_val = arr[0]
+    for i in range(1, n):
+        if arr[i] >= max_val:  # >= to get most recent on ties
+            max_val = arr[i]
+            max_idx = i
+    days_since = n - 1 - max_idx
+    return ((n - days_since) / n) * 100
+
+
+@numba.jit(nopython=True, cache=True)
+def _numba_aroon_down(arr: np.ndarray) -> float:
+    """Numba-optimized Aroon Down calculation."""
+    n = len(arr)
+    if n == 0:
+        return np.nan
+    min_idx = 0
+    min_val = arr[0]
+    for i in range(1, n):
+        if arr[i] <= min_val:  # <= to get most recent on ties
+            min_val = arr[i]
+            min_idx = i
+    days_since = n - 1 - min_idx
+    return ((n - days_since) / n) * 100
 
 
 def stochastic_oscillator(
@@ -91,8 +149,9 @@ def commodity_channel_index(
     """
     typical_price = (high + low + close) / 3
     sma = typical_price.rolling(window=period).mean()
+    # Use Numba JIT for mean absolute deviation (hot path)
     mean_deviation = typical_price.rolling(window=period).apply(
-        lambda x: np.abs(x - x.mean()).mean(), raw=True
+        _numba_mean_abs_deviation, raw=True, engine="numba"
     )
 
     cci = (typical_price - sma) / (constant * mean_deviation)
@@ -548,12 +607,13 @@ def aroon_indicator(
     Returns:
         Tuple of (Aroon Up, Aroon Down) series
     """
+    # Use Numba JIT for argmax/argmin calculations (hot path)
     aroon_up = high.rolling(window=period).apply(
-        lambda x: (period - (period - x.argmax() - 1)) / period * 100, raw=False
+        _numba_aroon_up, raw=True, engine="numba"
     )
 
     aroon_down = low.rolling(window=period).apply(
-        lambda x: (period - (period - x.argmin() - 1)) / period * 100, raw=False
+        _numba_aroon_down, raw=True, engine="numba"
     )
 
     return aroon_up, aroon_down

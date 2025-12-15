@@ -35,6 +35,10 @@ class ExpressionTree:
     Attributes:
         root: The root node of the tree
         metadata: Optional metadata (e.g., origin, generation)
+
+    Performance optimizations:
+        - Node list caching to avoid O(n) traversal on each access
+        - Lazy invalidation of cache
     """
 
     root: Node
@@ -46,6 +50,11 @@ class ExpressionTree:
     MAX_SIZE: int = 50
     MIN_SIZE: int = 3
 
+    # Node cache (lazily computed)
+    _nodes_cache: list[Node] | None = field(default=None, repr=False, compare=False)
+    _size_cache: int | None = field(default=None, repr=False, compare=False)
+    _depth_cache: int | None = field(default=None, repr=False, compare=False)
+
     def __post_init__(self) -> None:
         """Validate tree structure."""
         if not self.is_valid():
@@ -53,13 +62,17 @@ class ExpressionTree:
 
     @property
     def size(self) -> int:
-        """Get total number of nodes."""
-        return count_nodes(self.root)
+        """Get total number of nodes (cached)."""
+        if self._size_cache is None:
+            object.__setattr__(self, "_size_cache", count_nodes(self.root))
+        return self._size_cache  # type: ignore[return-value]
 
     @property
     def depth(self) -> int:
-        """Get tree depth."""
-        return get_depth(self.root)
+        """Get tree depth (cached)."""
+        if self._depth_cache is None:
+            object.__setattr__(self, "_depth_cache", get_depth(self.root))
+        return self._depth_cache  # type: ignore[return-value]
 
     @property
     def return_type(self) -> DataType:
@@ -109,11 +122,13 @@ class ExpressionTree:
         )
 
     def get_nodes(self) -> list[Node]:
-        """Get all nodes in the tree."""
-        return collect_nodes(self.root)
+        """Get all nodes in the tree (cached)."""
+        if self._nodes_cache is None:
+            object.__setattr__(self, "_nodes_cache", collect_nodes(self.root))
+        return self._nodes_cache  # type: ignore[return-value]
 
     def get_node_at_index(self, index: int) -> Node | None:
-        """Get node at given index (pre-order traversal)."""
+        """Get node at given index (pre-order traversal, cached)."""
         nodes = self.get_nodes()
         if 0 <= index < len(nodes):
             return nodes[index]

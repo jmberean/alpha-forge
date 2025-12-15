@@ -515,23 +515,27 @@ class NSGA3Optimizer:
     ) -> list[int]:
         """Associate each individual to nearest reference point.
 
+        Vectorized implementation using NumPy broadcasting.
+
         Args:
-            normalized: Normalized fitness array
+            normalized: Normalized fitness array of shape (n_individuals, n_objectives)
 
         Returns:
             List of reference point indices (one per individual)
         """
-        associations = []
+        # Vectorized distance calculation using broadcasting
+        # normalized: (n_individuals, n_objectives)
+        # reference_points: (n_ref_points, n_objectives)
+        # Result: distances of shape (n_individuals, n_ref_points)
+        distances = np.linalg.norm(
+            normalized[:, None, :] - self.reference_points[None, :, :],
+            axis=2
+        )
 
-        for fitness in normalized:
-            # Find closest reference point (Euclidean distance)
-            distances = np.linalg.norm(
-                self.reference_points - fitness, axis=1
-            )
-            closest_idx = int(np.argmin(distances))
-            associations.append(closest_idx)
+        # Find closest reference point for each individual
+        closest_indices = np.argmin(distances, axis=1)
 
-        return associations
+        return closest_indices.tolist()
 
     def _compute_generation_stats(
         self, population: Population, generation: int
