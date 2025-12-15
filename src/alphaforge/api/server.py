@@ -438,7 +438,7 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
             log(f"Gen {gen:3d}/{request.n_generations} | Pareto: {pareto_size} | Unique: {stats.get('unique_formulas', 0)}")
 
         log("Running multi-objective evolution...")
-        orchestrator = DiscoveryOrchestrator(data, config)
+        orchestrator = DiscoveryOrchestrator(data.df, config)
         result = orchestrator.discover(on_generation=on_generation)
 
         log("━━━ DISCOVERY COMPLETE ━━━")
@@ -492,6 +492,7 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
             "best_by_objective": best_by_objective,
             "ensemble_weights": result.ensemble_weights,
             "generation_stats": result.generation_stats,
+            "n_generations": result.n_generations,
             "timestamp": datetime.now().isoformat(),
             "logs": discovery_logs.get(discovery_id, []),
         }

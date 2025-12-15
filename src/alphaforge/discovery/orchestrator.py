@@ -179,8 +179,10 @@ class DiscoveryOrchestrator:
         # Create ensemble
         ensemble_weights = self._create_ensemble(validated_pareto)
 
+        # Return ALL Pareto strategies (not just validated) so user sees results
+        # Validated ones have "validation_sharpe" in their fitness dict
         return DiscoveryResult(
-            pareto_front=validated_pareto,
+            pareto_front=nsga3_result.pareto_front,  # All Pareto strategies
             best_by_objective=nsga3_result.best_by_objective,
             factor_zoo=self.factor_zoo,
             ensemble_weights=ensemble_weights,
@@ -231,20 +233,30 @@ class DiscoveryOrchestrator:
             # Compile and evaluate expression ONCE
             signal = self._evaluate_tree(tree, self.train_data)
 
+            # Check for valid signal
+            if signal.isna().all():
+                raise ValueError("Signal is all NaN")
+
             # Generate positions (-1, 0, 1)
             positions = self._signals_to_positions(signal)
 
-            # Run backtest ONCE
-            result = self.backtest_engine.run_backtest(
-                prices=self.train_data["close"],
-                positions=positions,
-            )
+            # Simple vectorized backtest
+            prices = self.train_data["close"]
+            price_returns = prices.pct_change().fillna(0)
 
-            # Extract all metrics from single backtest
-            metrics = PerformanceMetrics.from_returns(result.returns)
+            # Strategy returns = position * price returns (with lag for signal)
+            lagged_positions = positions.shift(1).fillna(0)
+            strategy_returns = lagged_positions * price_returns
+
+            # Apply simple transaction costs (0.1% per trade)
+            position_changes = positions.diff().fillna(0).abs()
+            transaction_costs = position_changes * 0.001
+            strategy_returns = strategy_returns - transaction_costs
+
+            # Extract metrics
+            metrics = PerformanceMetrics.from_returns(strategy_returns)
 
             # Calculate turnover
-            position_changes = positions.diff().abs()
             avg_turnover = position_changes.mean()
 
             return {
@@ -291,13 +303,26 @@ class DiscoveryOrchestrator:
         Returns:
             Positions series (-1, 0, 1)
         """
-        # Normalize signal
-        signal_norm = (signal - signal.mean()) / signal.std()
+        # Drop NaN for normalization calculation
+        valid_signal = signal.dropna()
+        if len(valid_signal) < 2:
+            return pd.Series(0, index=signal.index, dtype=float)
+
+        # Normalize signal using valid values only
+        mean = valid_signal.mean()
+        std = valid_signal.std()
+        if std == 0 or np.isnan(std):
+            return pd.Series(0, index=signal.index, dtype=float)
+
+        signal_norm = (signal - mean) / std
 
         # Threshold at ±0.5 std
         positions = pd.Series(0, index=signal.index, dtype=float)
         positions[signal_norm > 0.5] = 1.0
         positions[signal_norm < -0.5] = -1.0
+
+        # Fill NaN positions with 0
+        positions = positions.fillna(0)
 
         return positions
 
@@ -320,14 +345,25 @@ class DiscoveryOrchestrator:
             try:
                 # Evaluate on validation data
                 signal = self._evaluate_tree(ind.tree, self.validation_data)
+
+                # Skip if all NaN
+                if signal.isna().all():
+                    continue
+
                 positions = self._signals_to_positions(signal)
 
-                result = self.backtest_engine.run_backtest(
-                    prices=self.validation_data["close"],
-                    positions=positions,
-                )
+                # Simple vectorized backtest on validation data
+                prices = self.validation_data["close"]
+                price_returns = prices.pct_change().fillna(0)
+                lagged_positions = positions.shift(1).fillna(0)
+                strategy_returns = lagged_positions * price_returns
 
-                metrics = PerformanceMetrics.from_returns(result.returns)
+                # Apply transaction costs
+                position_changes = positions.diff().fillna(0).abs()
+                transaction_costs = position_changes * 0.001
+                strategy_returns = strategy_returns - transaction_costs
+
+                metrics = PerformanceMetrics.from_returns(strategy_returns)
 
                 # Check thresholds
                 if (metrics.sharpe_ratio >= self.config.min_sharpe and
@@ -364,7 +400,7 @@ class DiscoveryOrchestrator:
 
         # Sort by Sharpe ratio (descending)
         self.factor_zoo.sort(
-            key=lambda tree: self._fitness_sharpe(tree),
+            key=lambda tree: self._get_cached_fitness(tree).get("sharpe", -999.0),
             reverse=True,
         )
 
