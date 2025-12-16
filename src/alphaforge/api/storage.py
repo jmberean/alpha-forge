@@ -9,7 +9,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy types."""
+
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
 
 
 class Storage:
@@ -85,9 +102,9 @@ class Storage:
                     data.get("strategy_name", ""),
                     data.get("status", "unknown"),
                     1 if data.get("passed", False) else 0,
-                    json.dumps(data.get("metrics", {})),
-                    json.dumps(data.get("equity_curve", [])),
-                    json.dumps(data.get("logs", [])),
+                    json.dumps(data.get("metrics", {}), cls=NumpyEncoder),
+                    json.dumps(data.get("equity_curve", []), cls=NumpyEncoder),
+                    json.dumps(data.get("logs", []), cls=NumpyEncoder),
                     data.get("timestamp", datetime.now().isoformat()),
                 ),
             )
@@ -95,7 +112,9 @@ class Storage:
     def get_validation(self, validation_id: str) -> dict[str, Any] | None:
         """Get validation result."""
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute("SELECT * FROM validations WHERE id = ?", (validation_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM validations WHERE id = ?", (validation_id,)
+            ).fetchone()
             if not row:
                 return None
 
@@ -143,8 +162,8 @@ class Storage:
                 (
                     discovery_id,
                     status,
-                    json.dumps(config),
-                    json.dumps(result),
+                    json.dumps(config, cls=NumpyEncoder),
+                    json.dumps(result, cls=NumpyEncoder),
                     result.get("timestamp", datetime.now().isoformat()),
                 ),
             )
@@ -152,7 +171,9 @@ class Storage:
     def get_discovery_run(self, discovery_id: str) -> dict[str, Any] | None:
         """Get a discovery run."""
         with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute("SELECT * FROM discovery_runs WHERE id = ?", (discovery_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM discovery_runs WHERE id = ?", (discovery_id,)
+            ).fetchone()
             if not row:
                 return None
 
@@ -181,8 +202,8 @@ class Storage:
                 (
                     factory_id,
                     status,
-                    json.dumps(config),
-                    json.dumps(result),
+                    json.dumps(config, cls=NumpyEncoder),
+                    json.dumps(result, cls=NumpyEncoder),
                     result.get("timestamp", datetime.now().isoformat()),
                 ),
             )

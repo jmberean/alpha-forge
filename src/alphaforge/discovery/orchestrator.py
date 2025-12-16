@@ -619,8 +619,8 @@ class DiscoveryOrchestrator:
 
             # Delegate to ExpressionGenome.to_strategy_genome
             genome = ind.genome.to_strategy_genome()
-            # Update metadata with fitness
-            genome.metadata["fitness"] = ind.fitness
+            # Update parameters with fitness
+            genome.parameters["fitness"] = ind.fitness
 
             genomes.append(genome)
 

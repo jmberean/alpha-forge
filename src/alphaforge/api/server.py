@@ -4,9 +4,11 @@ FastAPI server for AlphaForge.
 Provides REST API endpoints to run validations and retrieve results.
 """
 
+import math
 import os
 import uuid
 from datetime import datetime
+from typing import Any
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,6 +39,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def sanitize_for_json(obj: Any) -> Any:
+    """Recursively sanitize data for JSON serialization.
+
+    Replaces NaN/Inf floats with None since JSON doesn't support them.
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_for_json(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
+
 
 # Persistence
 storage = Storage()
@@ -709,7 +726,7 @@ async def get_validation_result(validation_id: str):
     # Check persistence
     result = storage.get_validation(validation_id)
     if result:
-        return result
+        return sanitize_for_json(result)
 
     raise HTTPException(status_code=404, detail="Result not found")
 
@@ -793,7 +810,7 @@ async def get_factory_result(factory_id: str):
 
     result = storage.get_factory_run(factory_id)
     if result:
-        return result
+        return sanitize_for_json(result)
 
     raise HTTPException(status_code=404, detail="Result not found")
 
@@ -979,7 +996,7 @@ async def get_discovery_result(discovery_id: str):
 
     result = storage.get_discovery_run(discovery_id)
     if result:
-        return result
+        return sanitize_for_json(result)
 
     raise HTTPException(status_code=404, detail="Result not found")
 
