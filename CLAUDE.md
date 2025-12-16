@@ -83,7 +83,7 @@ src/alphaforge/
 
 | Metric | Minimum | Auto-Accept |
 |--------|---------|-------------|
-| PBO | < 0.05 | < 0.02 |
+| Prob. of Loss | < 0.05 | < 0.02 |
 | DSR | > 0.95 | > 0.98 |
 | Sharpe | > 1.0 | > 1.5 |
 | Stress Pass | ≥ 80% | ≥ 80% |
@@ -96,12 +96,24 @@ src/alphaforge/
 - **Type Hints**: All functions need complete annotations
 - **Test Data**: Never commit data files; use cache + .gitignore
 
-## Frontend
+## Plugins
 
-Use `frontend-design` plugin for UI work.
+### frontend-design
+Use for UI/UX work in `frontend/`. Creates production-grade components.
+```
+/skill frontend-design
+```
 
-- Stack: Next.js 14, TypeScript, Tailwind, Framer Motion, Recharts
-- Location: `frontend/`
+### ast-grep
+Use for structural code search and refactoring patterns.
+```
+/skill ast-grep
+```
+
+### greptile
+Use for deep codebase exploration and understanding complex flows.
+- MCP server with list_merge_requests, get_code_review, search_custom_context tools
+- Helpful for understanding multi-file interactions
 
 ## Parallel Agents
 

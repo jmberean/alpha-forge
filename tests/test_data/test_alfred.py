@@ -18,10 +18,11 @@ class TestALFREDClient:
 
     def test_initialization(self):
         """Test creating ALFRED client."""
-        client = ALFREDClient(api_key="test_key")
+        client = ALFREDClient(api_key="test_key", use_mock=True)
 
-        assert client.api_key == "test_key"
+        assert client.api_key is None  # Mock mode doesn't require API key
         assert client.base_url == "https://api.stlouisfed.org/fred"
+        assert client.use_mock is True
 
     def test_macro_series_config(self):
         """Test MACRO_SERIES configuration."""
@@ -35,7 +36,7 @@ class TestALFREDClient:
 
     def test_get_vintage_data(self):
         """Test getting vintage data (mock implementation)."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
 
         df = client.get_vintage_data(
             series_id="GDP",
@@ -52,7 +53,7 @@ class TestALFREDClient:
 
     def test_vintage_respects_release_lag(self):
         """Test that vintage data respects release lags."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
 
         # GDP has 30-day release lag
         vintage_date = date(2024, 4, 15)  # Too early for Q1 2024
@@ -69,7 +70,7 @@ class TestALFREDClient:
 
     def test_daily_vs_monthly_vs_quarterly_lag(self):
         """Test different release lags for different frequencies."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
 
         # Daily data (VIX) - same day release
         df_daily = client.get_vintage_data(
@@ -93,7 +94,7 @@ class TestALFREDClient:
 
     def test_get_all_vintages(self):
         """Test getting all vintages for an observation."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
 
         vintages = client.get_all_vintages("GDP", date(2024, 3, 31))
 
@@ -108,7 +109,7 @@ class TestALFREDClient:
 
     def test_mock_value_deterministic(self):
         """Test that mock values are deterministic."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
 
         value1 = client._generate_mock_value("GDP", date(2024, 1, 1))
         value2 = client._generate_mock_value("GDP", date(2024, 1, 1))
@@ -118,7 +119,7 @@ class TestALFREDClient:
 
     def test_mock_value_realistic_ranges(self):
         """Test that mock values are in realistic ranges."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
 
         gdp = client._generate_mock_value("GDP", date(2024, 1, 1))
         assert 20000 <= gdp <= 25000  # Billions
@@ -135,7 +136,7 @@ class TestALFREDSync:
 
     def test_sync_series(self):
         """Test syncing a single series."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
         store = BiTemporalStore()
         sync = ALFREDSync(client, store)
 
@@ -161,7 +162,7 @@ class TestALFREDSync:
 
     def test_daily_sync(self):
         """Test daily sync process."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
         store = BiTemporalStore()
         sync = ALFREDSync(client, store)
 
@@ -177,7 +178,7 @@ class TestALFREDSync:
 
     def test_sync_creates_pit_queryable_data(self):
         """Test that synced data is queryable with PIT semantics."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
         store = BiTemporalStore()
         sync = ALFREDSync(client, store)
 
@@ -212,7 +213,7 @@ class TestGetMacroFeature:
 
     def test_get_macro_feature(self):
         """Test getting macro feature with PIT semantics."""
-        client = ALFREDClient()
+        client = ALFREDClient(use_mock=True)
         store = BiTemporalStore()
         sync = ALFREDSync(client, store)
 

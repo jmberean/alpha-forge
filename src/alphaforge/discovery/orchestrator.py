@@ -14,27 +14,27 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Callable, Any
-from concurrent.futures import ThreadPoolExecutor
 import os
-import pandas as pd
-import numpy as np
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
-from alphaforge.discovery.expression.tree import ExpressionTree, TreeGenerator
-from alphaforge.discovery.expression.compiler import compile_tree
-from alphaforge.discovery.evolution.nsga3 import (
-    NSGA3Optimizer,
-    NSGA3Config,
-    NSGA3Result,
-)
-from alphaforge.discovery.operators.selection import Individual
+import numpy as np
+import pandas as pd
+
 from alphaforge.backtest.engine import BacktestEngine
 from alphaforge.backtest.metrics import PerformanceMetrics
-from alphaforge.strategy.genome import StrategyGenome
+from alphaforge.discovery.evolution.nsga3 import (
+    NSGA3Config,
+    NSGA3Optimizer,
+)
+from alphaforge.discovery.expression.compiler import compile_tree
+from alphaforge.discovery.expression.tree import ExpressionTree, TreeGenerator
+from alphaforge.discovery.operators.selection import Individual
 from alphaforge.evolution.genomes import ExpressionGenome
 from alphaforge.evolution.protocol import Evolvable
-
+from alphaforge.strategy.genome import StrategyGenome
+from alphaforge.validation.pbo import PBOResult, ProbabilityOfOverfitting
 
 # Get optimal worker count for this machine
 N_WORKERS = min(os.cpu_count() or 4, 12)  # Cap at 12 to avoid overhead
@@ -86,6 +86,7 @@ class DiscoveryResult:
         ensemble_weights: Weights for ensemble portfolio
         generation_stats: Statistics per generation
         n_generations: Number of generations completed
+        true_pbo: True selection-based PBO result (None if insufficient data)
     """
 
     pareto_front: list[Individual]
@@ -94,6 +95,7 @@ class DiscoveryResult:
     ensemble_weights: dict[str, float]
     generation_stats: list[dict[str, Any]]
     n_generations: int
+    true_pbo: PBOResult | None = None
 
 
 class DiscoveryOrchestrator:
@@ -122,7 +124,7 @@ class DiscoveryOrchestrator:
         # Initialize components
         self.backtest_engine = BacktestEngine()
         self.factor_zoo: list[ExpressionTree] = []
-        
+
         # Tree generator
         self.tree_generator = TreeGenerator(seed=self.config.seed)
 
@@ -131,6 +133,9 @@ class DiscoveryOrchestrator:
 
         # Cache for fitness evaluations (key optimization - avoids redundant backtests)
         self._fitness_cache: dict[str, dict[str, float]] = {}
+
+        # Cache for out-of-sample fitness (for True PBO calculation)
+        self._oos_fitness_cache: dict[str, dict[str, float]] = {}
 
     def _split_data(self) -> None:
         """Split data into training and validation sets."""
@@ -167,7 +172,7 @@ class DiscoveryOrchestrator:
             diversity_injection=self.config.diversity_injection,
             seed=self.config.seed,
         )
-        
+
         # Generator for new individuals
         def generator() -> Evolvable:
             return ExpressionGenome(self.tree_generator.generate(method="ramped"))
@@ -178,7 +183,7 @@ class DiscoveryOrchestrator:
             generator=generator,
             config=nsga3_config,
         )
-        
+
         # Prepare initial population
         initial_population = []
         if warm_start_formulas:
@@ -198,6 +203,9 @@ class DiscoveryOrchestrator:
         # Create ensemble
         ensemble_weights = self._create_ensemble(validated_pareto)
 
+        # Calculate True Selection-Based PBO
+        true_pbo = self.calculate_true_pbo()
+
         # Return ALL Pareto strategies (not just validated) so user sees results
         # Validated ones have "validation_sharpe" in their fitness dict
         return DiscoveryResult(
@@ -207,6 +215,7 @@ class DiscoveryOrchestrator:
             ensemble_weights=ensemble_weights,
             generation_stats=nsga3_result.generation_stats,
             n_generations=nsga3_result.n_generations,
+            true_pbo=true_pbo,
         )
 
     def _create_fitness_functions(self) -> dict[str, Callable[[Evolvable], float]]:
@@ -231,6 +240,7 @@ class DiscoveryOrchestrator:
         """Get all fitness values for a tree, using cache to avoid redundant backtests.
 
         This is the key optimization - ONE backtest extracts ALL metrics.
+        Also computes OOS fitness for True PBO calculation.
         """
         # Only support ExpressionGenome for now in Discovery
         if not isinstance(genome, ExpressionGenome):
@@ -240,16 +250,22 @@ class DiscoveryOrchestrator:
                 "turnover": -999.0,
                 "complexity": -999.0,
             }
-            
+
         tree = genome.tree
         cache_key = tree.hash
 
         if cache_key in self._fitness_cache:
             return self._fitness_cache[cache_key]
 
-        # Compute all fitness values in ONE backtest
+        # Compute all fitness values in ONE backtest (IS)
         fitness = self._compute_all_fitness(tree)
         self._fitness_cache[cache_key] = fitness
+
+        # Also compute OOS fitness for True PBO (cached separately)
+        if cache_key not in self._oos_fitness_cache:
+            oos_fitness = self._compute_oos_fitness(tree)
+            self._oos_fitness_cache[cache_key] = oos_fitness
+
         return fitness
 
     def _compute_all_fitness(self, tree: ExpressionTree) -> dict[str, float]:
@@ -286,8 +302,10 @@ class DiscoveryOrchestrator:
             metrics = PerformanceMetrics.from_returns(strategy_returns)
 
             # Check activity constraints (Fix #4.1: Zero-Trade Loophole)
-            if (metrics.num_trades < self.config.min_trades or 
-                metrics.volatility < self.config.min_volatility):
+            if (
+                metrics.num_trades < self.config.min_trades
+                or metrics.volatility < self.config.min_volatility
+            ):
                 return {
                     "sharpe": -999.0,
                     "drawdown": -999.0,
@@ -301,7 +319,7 @@ class DiscoveryOrchestrator:
             return {
                 "sharpe": metrics.sharpe_ratio,
                 "drawdown": -metrics.max_drawdown,  # Negated (higher = better)
-                "turnover": -avg_turnover * 10,     # Negated (higher = better)
+                "turnover": -avg_turnover * 10,  # Negated (higher = better)
                 "complexity": -tree.complexity_score(),  # Negated (higher = better)
             }
 
@@ -312,6 +330,100 @@ class DiscoveryOrchestrator:
                 "turnover": -999.0,
                 "complexity": -999.0,
             }
+
+    def _compute_oos_fitness(self, tree: ExpressionTree) -> dict[str, float]:
+        """Compute out-of-sample fitness on validation data.
+
+        Returns dict with: sharpe, drawdown, turnover, complexity
+        All values are oriented so higher = better.
+        """
+        try:
+            # Compile and evaluate expression ONCE on validation data
+            signal = self._evaluate_tree(tree, self.validation_data)
+
+            # Check for valid signal
+            if signal.isna().all():
+                raise ValueError("Signal is all NaN")
+
+            # Generate positions (-1, 0, 1)
+            positions = self._signals_to_positions(signal)
+
+            # Simple vectorized backtest
+            prices = self.validation_data["close"]
+            price_returns = prices.pct_change().fillna(0)
+
+            # Strategy returns = position * price returns (with lag for signal)
+            lagged_positions = positions.shift(1).fillna(0)
+            strategy_returns = lagged_positions * price_returns
+
+            # Apply simple transaction costs (0.1% per trade)
+            position_changes = positions.diff().fillna(0).abs()
+            transaction_costs = position_changes * 0.001
+            strategy_returns = strategy_returns - transaction_costs
+
+            # Extract metrics
+            metrics = PerformanceMetrics.from_returns(strategy_returns)
+
+            # Check activity constraints
+            if (
+                metrics.num_trades < self.config.min_trades
+                or metrics.volatility < self.config.min_volatility
+            ):
+                return {
+                    "sharpe": -999.0,
+                    "drawdown": -999.0,
+                    "turnover": -999.0,
+                    "complexity": -999.0,
+                }
+
+            # Calculate turnover
+            avg_turnover = position_changes.mean()
+
+            return {
+                "sharpe": metrics.sharpe_ratio,
+                "drawdown": -metrics.max_drawdown,  # Negated (higher = better)
+                "turnover": -avg_turnover * 10,  # Negated (higher = better)
+                "complexity": -tree.complexity_score(),  # Negated (higher = better)
+            }
+
+        except Exception:
+            return {
+                "sharpe": -999.0,
+                "drawdown": -999.0,
+                "turnover": -999.0,
+                "complexity": -999.0,
+            }
+
+    def calculate_true_pbo(self) -> PBOResult | None:
+        """Calculate true selection-based PBO from IS/OOS caches.
+
+        Returns:
+            PBOResult with PBO score, rank correlation, and pass/fail status
+            Returns None if insufficient data (< 2 strategies)
+        """
+        hashes = list(self._fitness_cache.keys())
+        n_strategies = len(hashes)
+
+        if n_strategies < 2:
+            return None
+
+        # Extract IS and OOS Sharpe ratios for all strategies
+        # Note: Using single combination (70/30 split) as per current implementation
+        # Format: [n_combinations x n_strategies]
+        is_sharpe = []
+        oos_sharpe = []
+
+        for h in hashes:
+            is_sharpe.append(self._fitness_cache[h].get("sharpe", -999.0))
+            oos_sharpe.append(self._oos_fitness_cache.get(h, {}).get("sharpe", -999.0))
+
+        # Convert to 2D arrays [1 x n_strategies]
+        is_performance = np.array([is_sharpe])
+        oos_performance = np.array([oos_sharpe])
+
+        # Calculate True PBO
+        pbo_calculator = ProbabilityOfOverfitting()
+        return pbo_calculator.calculate(is_performance, oos_performance)
 
     def _evaluate_tree(self, tree: ExpressionTree, data: pd.DataFrame) -> pd.Series:
         """Evaluate expression tree on data.
@@ -346,15 +458,15 @@ class DiscoveryOrchestrator:
         """
         # Drop NaN for normalization calculation
         # valid_signal = signal.dropna() # Cannot dropna, indexes must align
-        
+
         # Use expanding window z-score
         # Requires at least 20 periods to establish a baseline
         expanding_mean = signal.expanding(min_periods=20).mean()
         expanding_std = signal.expanding(min_periods=20).std()
-        
+
         # Avoid division by zero
         expanding_std = expanding_std.replace(0, np.nan)
-        
+
         signal_norm = (signal - expanding_mean) / expanding_std
 
         # Threshold at ±0.5 std
@@ -367,9 +479,7 @@ class DiscoveryOrchestrator:
 
         return positions
 
-    def _validate_strategies(
-        self, strategies: list[Individual]
-    ) -> list[Individual]:
+    def _validate_strategies(self, strategies: list[Individual]) -> list[Individual]:
         """Validate strategies on held-out validation data.
 
         Filters out strategies that don't meet minimum thresholds.
@@ -387,7 +497,7 @@ class DiscoveryOrchestrator:
             if not isinstance(ind.genome, ExpressionGenome):
                 continue
             tree = ind.genome.tree
-            
+
             try:
                 # Evaluate on validation data
                 signal = self._evaluate_tree(tree, self.validation_data)
@@ -412,10 +522,11 @@ class DiscoveryOrchestrator:
                 metrics = PerformanceMetrics.from_returns(strategy_returns)
 
                 # Check thresholds
-                if (metrics.sharpe_ratio >= self.config.min_sharpe and
-                    metrics.max_drawdown <= abs(1.0 / self.config.min_sharpe) and
-                    tree.complexity_score() <= self.config.max_complexity):
-
+                if (
+                    metrics.sharpe_ratio >= self.config.min_sharpe
+                    and metrics.max_drawdown <= abs(1.0 / self.config.min_sharpe)
+                    and tree.complexity_score() <= self.config.max_complexity
+                ):
                     # Update fitness with validation metrics
                     ind.fitness["validation_sharpe"] = metrics.sharpe_ratio
                     validated.append(ind)
@@ -438,7 +549,7 @@ class DiscoveryOrchestrator:
             if not isinstance(ind.genome, ExpressionGenome):
                 continue
             tree = ind.genome.tree
-            
+
             sharpe = ind.fitness.get("sharpe", 0)
             complexity = tree.complexity_score()
 
@@ -452,12 +563,12 @@ class DiscoveryOrchestrator:
         # Note: _get_cached_fitness needs ExpressionGenome
         # But factor_zoo stores ExpressionTree
         # We need to wrap it temporarily or update sort key
-        
+
         # Simplified sort key that re-computes or trusts metadata if available
         # But we don't have metadata on tree objects easily accessible here
         # Let's rebuild wrappers
         zoo_genomes = [ExpressionGenome(t) for t in self.factor_zoo]
-        
+
         zoo_genomes.sort(
             key=lambda g: self._get_cached_fitness(g).get("sharpe", -999.0),
             reverse=True,
@@ -466,9 +577,7 @@ class DiscoveryOrchestrator:
         # Keep top 100
         self.factor_zoo = [g.tree for g in zoo_genomes[:100]]
 
-    def _create_ensemble(
-        self, strategies: list[Individual]
-    ) -> dict[str, float]:
+    def _create_ensemble(self, strategies: list[Individual]) -> dict[str, float]:
         """Create ensemble portfolio from strategies.
 
         Uses equal weighting for strategies on Pareto front.
@@ -485,16 +594,11 @@ class DiscoveryOrchestrator:
         # Equal weight ensemble
         weight = 1.0 / len(strategies)
 
-        ensemble_weights = {
-            ind.genome.hash: weight
-            for ind in strategies
-        }
+        ensemble_weights = {ind.genome.hash: weight for ind in strategies}
 
         return ensemble_weights
 
-    def to_strategy_genomes(
-        self, individuals: list[Individual]
-    ) -> list[StrategyGenome]:
+    def to_strategy_genomes(self, individuals: list[Individual]) -> list[StrategyGenome]:
         """Convert individuals to StrategyGenome format.
 
         This allows discovered strategies to use the existing
@@ -512,12 +616,12 @@ class DiscoveryOrchestrator:
             # Create genome with expression tree as signal
             if not isinstance(ind.genome, ExpressionGenome):
                 continue
-            
+
             # Delegate to ExpressionGenome.to_strategy_genome
             genome = ind.genome.to_strategy_genome()
             # Update metadata with fitness
             genome.metadata["fitness"] = ind.fitness
-            
+
             genomes.append(genome)
 
         return genomes

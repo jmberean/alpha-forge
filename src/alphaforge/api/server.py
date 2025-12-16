@@ -4,22 +4,22 @@ FastAPI server for AlphaForge.
 Provides REST API endpoints to run validations and retrieve results.
 """
 
-from datetime import datetime
 import os
 import uuid
+from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from alphaforge.api.storage import Storage
 from alphaforge.backtest.engine import BacktestEngine
 from alphaforge.data.loader import MarketDataLoader
-from alphaforge.strategy.templates import StrategyTemplates
-from alphaforge.validation.pipeline import ValidationPipeline
+from alphaforge.discovery import DiscoveryConfig, DiscoveryOrchestrator
 from alphaforge.factory import StrategyFactory
 from alphaforge.factory.orchestrator import FactoryConfig
-from alphaforge.discovery import DiscoveryOrchestrator, DiscoveryConfig
-from alphaforge.api.storage import Storage
+from alphaforge.strategy.templates import StrategyTemplates
+from alphaforge.validation.pipeline import ValidationPipeline
 
 # Create FastAPI app
 app = FastAPI(
@@ -221,7 +221,9 @@ async def run_validation_task(validation_id: str, request: ValidationRequest):
                 "dsr": validation_result.dsr_result.dsr_pvalue
                 if validation_result.dsr_result
                 else 0.0,
-                "prob_loss": validation_result.pbo_result.pbo if validation_result.pbo_result else None,
+                "prob_loss": validation_result.pbo_result.pbo
+                if validation_result.pbo_result
+                else None,
                 "annual_return": backtest_result.metrics.annualized_return,
                 "max_drawdown": backtest_result.metrics.max_drawdown,
                 "sortino_ratio": backtest_result.metrics.sortino_ratio,
@@ -272,9 +274,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Starting Strategy Factory")
 
         # Load data
-        log(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Loading market data for {request.symbol}..."
-        )
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Loading market data for {request.symbol}...")
         loader = MarketDataLoader()
         data = loader.load(request.symbol, start=request.start_date, end=request.end_date)
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Loaded {len(data.df)} trading days")
@@ -291,9 +291,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
 
         # Configure factory
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Configuring genetic evolution...")
-        log(
-            f"[{datetime.now().strftime('%H:%M:%S')}]   Population: {request.population_size}"
-        )
+        log(f"[{datetime.now().strftime('%H:%M:%S')}]   Population: {request.population_size}")
         log(f"[{datetime.now().strftime('%H:%M:%S')}]   Generations: {request.generations}")
 
         config = FactoryConfig(
@@ -307,9 +305,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Running genetic evolution...")
         factory = StrategyFactory(fitness_function=fitness, config=config)
         pool = factory.generate()
-        log(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Generated {len(pool.strategies)} candidates"
-        )
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Generated {len(pool.strategies)} candidates")
 
         # Get top strategies
         top_strategies = factory.get_top_strategies(n=request.validate_top_n)
@@ -365,7 +361,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
                         "fitness": fitness_score,
                     }
                 )
-                
+
                 # Persist these individual validation results too!
                 vid = validated_strategies[-1]["id"]
                 val_data = {
@@ -400,9 +396,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
 
         log(f"[{datetime.now().strftime('%H:%M:%S')}] ━━━ FACTORY COMPLETE ━━━")
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Generated: {len(pool.strategies)}")
-        log(
-            f"[{datetime.now().strftime('%H:%M:%S')}] Validated: {len(validated_strategies)}"
-        )
+        log(f"[{datetime.now().strftime('%H:%M:%S')}] Validated: {len(validated_strategies)}")
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Passed: {passed_count}")
 
         factory_result = {
@@ -533,7 +527,9 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
 
         # Only validate top strategies to keep reasonable runtime (e.g., top 10)
         max_validate = min(10, len(strategy_genomes))
-        log(f"Validating top {max_validate} Pareto strategies (n_trials={request.population_size * request.n_generations})...")
+        log(
+            f"Validating top {max_validate} Pareto strategies (n_trials={request.population_size * request.n_generations})..."
+        )
 
         validated_strategies = []
         for i, strategy in enumerate(strategy_genomes[:max_validate]):
@@ -551,15 +547,19 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
                 if val_result.passed:
                     passed_count += 1
 
-                log(f"  #{i+1}: {'PASSED' if val_result.passed else 'FAILED'} - DSR: {val_result.dsr_result.dsr_pvalue:.4f}")
+                log(
+                    f"  #{i + 1}: {'PASSED' if val_result.passed else 'FAILED'} - DSR: {val_result.dsr_result.dsr_pvalue:.4f}"
+                )
 
-                validated_strategies.append({
-                    "index": i,
-                    "passed": val_result.passed,
-                    "dsr": val_result.dsr_result.dsr_pvalue if val_result.dsr_result else 0.0,
-                })
+                validated_strategies.append(
+                    {
+                        "index": i,
+                        "passed": val_result.passed,
+                        "dsr": val_result.dsr_result.dsr_pvalue if val_result.dsr_result else 0.0,
+                    }
+                )
             except Exception as e:
-                log(f"  #{i+1}: Error validating - {str(e)}")
+                log(f"  #{i + 1}: Error validating - {str(e)}")
 
         log(f"✓ Validation complete: {passed_count}/{validated_count} passed DSR screening")
 
@@ -624,6 +624,13 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
             "ensemble_weights": result.ensemble_weights,
             "generation_stats": result.generation_stats,
             "n_generations": result.n_generations,
+            "true_pbo": {
+                "pbo": result.true_pbo.pbo if result.true_pbo else None,
+                "rank_correlation": result.true_pbo.rank_correlation if result.true_pbo else None,
+                "passed": result.true_pbo.passed if result.true_pbo else None,
+            }
+            if result.true_pbo
+            else None,
             "timestamp": datetime.now().isoformat(),
             "logs": discovery_logs.get(discovery_id, []),
         }
@@ -850,7 +857,7 @@ async def get_latest_metrics():
         }
 
     # Get most recent result
-    latest = validations[0] # list_validations sorts by desc timestamp
+    latest = validations[0]  # list_validations sorts by desc timestamp
     metrics = latest.get("metrics", {})
 
     return {

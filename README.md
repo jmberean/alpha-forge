@@ -443,14 +443,14 @@ The current implementation provides a **conservative single-strategy screening m
 
 #### 2. Universe Construction & Survivorship Bias
 
-The current implementation uses **mock universe data** for demonstration purposes:
+The current implementation focuses on **single-ticker strategy development**:
 
 - **What's included**: Live tickers available via yfinance
-- **What's missing**: Historical constituents that have since been delisted
-- **Impact**: Survivorship bias inflates historical performance (estimated +2-5% annual return bias)
+- **What's missing**: Historical index constituent lists and delisted securities
+- **Impact**: Survivorship bias inflates historical performance when testing on currently-listed securities (estimated +2-5% annual return bias)
 
-**For production use**, you would need:
-- Historical index constituent lists with add/remove dates
+**For production use with portfolio strategies**, you would need:
+- Historical index constituent lists with add/remove dates (e.g., CRSP, Sharadar)
 - Delisted securities data with final prices
 - Merger/acquisition/bankruptcy records
 - Point-in-time universe reconstruction
@@ -749,7 +749,6 @@ alpha-forge/
 │   │   ├── schema.py            # OHLCVData schema
 │   │   ├── bitemporal.py        # Bi-temporal 3-timestamp schema
 │   │   ├── alfred.py            # Federal Reserve vintage data
-│   │   ├── universe.py          # Survivorship bias prevention
 │   │   └── quality.py           # Data quality validation
 │   │
 │   ├── features/                # Layer 2: Feature engineering

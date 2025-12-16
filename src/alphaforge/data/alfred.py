@@ -7,14 +7,20 @@ queries that respect when data was actually released (not just observed).
 
 from __future__ import annotations
 
+import os
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
 import requests
+from dotenv import load_dotenv
 
 from alphaforge.data.bitemporal import BiTemporalRecord, BiTemporalStore
+
+# Load .env file
+load_dotenv()
 
 
 @dataclass
@@ -50,19 +56,39 @@ class ALFREDClient:
     """
     Client for ALFRED vintage data API.
 
-    Note: This is a simplified implementation. In production, use the full
-    FRED API with proper authentication and rate limiting.
+    Supports both real FRED API calls and mock mode for testing.
     """
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, use_mock: bool = False):
         """
         Initialize ALFRED client.
 
         Args:
-            api_key: FRED API key (required for production)
+            api_key: FRED API key (get from https://fred.stlouisfed.org/)
+                    If not provided, reads from FRED_API_KEY environment variable
+            use_mock: If True, use mock data instead of real API calls (default: False)
         """
-        self.api_key = api_key
+        self.use_mock = use_mock
         self.base_url = "https://api.stlouisfed.org/fred"
+        self._last_request_time = 0.0
+
+        if not use_mock:
+            self.api_key = api_key or os.environ.get("FRED_API_KEY")
+            if not self.api_key:
+                raise ValueError(
+                    "FRED_API_KEY required. Get one at https://fred.stlouisfed.org/ "
+                    "or set FRED_API_KEY environment variable"
+                )
+        else:
+            self.api_key = None
+
+    def _rate_limit(self) -> None:
+        """Enforce rate limit of 120 requests/minute (500ms between requests)."""
+        elapsed = time.time() - self._last_request_time
+        min_interval = 0.5  # 500ms = 120 req/min
+        if elapsed < min_interval:
+            time.sleep(min_interval - elapsed)
+        self._last_request_time = time.time()
 
     def get_vintage_data(
         self,
@@ -82,14 +108,53 @@ class ALFREDClient:
 
         Returns:
             DataFrame with columns: observation_date, value, revision_number
-
-        Note:
-            In production, this would call the FRED API. For MVP, we provide
-            a mock implementation.
         """
-        # Mock implementation for MVP
-        # In production: requests.get(f"{self.base_url}/series/observations", params={...})
-        return self._mock_vintage_data(series_id, vintage_date, observation_start, observation_end)
+        if self.use_mock:
+            return self._mock_vintage_data(
+                series_id, vintage_date, observation_start, observation_end
+            )
+
+        # Real FRED API call
+        self._rate_limit()
+
+        params = {
+            "api_key": self.api_key,
+            "file_type": "json",
+            "series_id": series_id,
+            "realtime_start": vintage_date.isoformat(),
+            "realtime_end": vintage_date.isoformat(),
+        }
+
+        if observation_start:
+            params["observation_start"] = observation_start.isoformat()
+        if observation_end:
+            params["observation_end"] = observation_end.isoformat()
+
+        try:
+            response = requests.get(
+                f"{self.base_url}/series/observations", params=params, timeout=30
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            observations = data.get("observations", [])
+
+            # Convert to DataFrame
+            if not observations:
+                return pd.DataFrame(columns=["observation_date", "value", "revision_number"])
+
+            df = pd.DataFrame(observations)
+            df = df.rename(columns={"date": "observation_date"})
+
+            # Parse dates and values
+            df["observation_date"] = pd.to_datetime(df["observation_date"]).dt.date
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+            df["revision_number"] = 0  # FRED doesn't expose revision numbers directly
+
+            return df[["observation_date", "value", "revision_number"]]
+
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"FRED API request failed: {e}") from e
 
     def _mock_vintage_data(
         self,
@@ -134,11 +199,13 @@ class ALFREDClient:
                     # Mock value (in production, comes from API)
                     value = self._generate_mock_value(series_id, obs_date.date())
 
-                    observations.append({
-                        "observation_date": obs_date.date(),
-                        "value": value,
-                        "revision_number": 0,
-                    })
+                    observations.append(
+                        {
+                            "observation_date": obs_date.date(),
+                            "value": value,
+                            "revision_number": 0,
+                        }
+                    )
 
         return pd.DataFrame(observations)
 
@@ -146,6 +213,7 @@ class ALFREDClient:
         """Generate mock economic data value."""
         # Simple hash-based deterministic values for testing
         import hashlib
+
         hash_input = f"{series_id}_{obs_date}".encode()
         hash_value = int(hashlib.md5(hash_input).hexdigest(), 16)
 
@@ -180,8 +248,46 @@ class ALFREDClient:
         Returns:
             List of vintages with release_date and value
         """
-        # Mock implementation
-        return self._mock_all_vintages(series_id, observation_date)
+        if self.use_mock:
+            return self._mock_all_vintages(series_id, observation_date)
+
+        # Real FRED API call
+        self._rate_limit()
+
+        params = {
+            "api_key": self.api_key,
+            "file_type": "json",
+            "series_id": series_id,
+            "observation_start": observation_date.isoformat(),
+            "observation_end": observation_date.isoformat(),
+        }
+
+        try:
+            response = requests.get(
+                f"{self.base_url}/series/observations", params=params, timeout=30
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            observations = data.get("observations", [])
+
+            vintages = []
+            for i, obs in enumerate(observations):
+                try:
+                    vintages.append(
+                        {
+                            "vintage_date": pd.to_datetime(obs["realtime_start"]).date(),
+                            "value": float(obs["value"]),
+                            "revision": i,
+                        }
+                    )
+                except (ValueError, KeyError):
+                    continue
+
+            return vintages
+
+        except requests.exceptions.RequestException as e:
+            raise RuntimeError(f"FRED API request failed: {e}") from e
 
     def _mock_all_vintages(
         self,
@@ -270,7 +376,7 @@ class ALFREDSync:
             transaction_time = datetime.now()
 
             record = BiTemporalRecord(
-                entity_id=f"US_MACRO",
+                entity_id="US_MACRO",
                 indicator_name=series_id,
                 observation_date=row["observation_date"],
                 release_date=release_date,

@@ -7,7 +7,6 @@ This module provides:
 - PointInTimeQuery: Query data as it was known at a specific time
 - BiTemporalStore: In-memory bi-temporal data store with PIT queries
 - ALFREDClient: Federal Reserve vintage data integration
-- UniverseRegistry: Survivorship bias prevention
 - DataQualityChecker: Automated data validation
 """
 
@@ -18,13 +17,6 @@ from alphaforge.data.loader import MarketDataLoader
 from alphaforge.data.pit import PointInTimeQuery
 from alphaforge.data.quality import DataQualityChecker, QualityReport, validate_data_quality
 from alphaforge.data.schema import BiTemporalRecord, MarketData
-from alphaforge.data.universe import (
-    SP500HistoricalConstituents,
-    SecurityInfo,
-    SurvivorshipBiasError,
-    UniverseRegistry,
-    validate_universe,
-)
 
 __all__ = [
     # Original exports
@@ -39,11 +31,6 @@ __all__ = [
     "ALFREDClient",
     "ALFREDSync",
     "get_macro_feature",
-    "UniverseRegistry",
-    "SecurityInfo",
-    "SP500HistoricalConstituents",
-    "validate_universe",
-    "SurvivorshipBiasError",
     "DataQualityChecker",
     "QualityReport",
     "validate_data_quality",
