@@ -22,7 +22,7 @@ function determineStatus(name: string, value: number): 'pass' | 'warning' | 'fai
   if (name.includes('Deflated Sharpe') || name.includes('DSR')) {
     return value > 0.95 ? 'pass' : value > 0.9 ? 'warning' : 'fail'
   }
-  if (name.includes('PBO') || name.includes('Overfitting')) {
+  if (name.includes('PBO') || name.includes('Overfitting') || name.includes('Probability') || name.includes('Loss')) {
     return value < 0.05 ? 'pass' : value < 0.1 ? 'warning' : 'fail'
   }
   if (name.includes('Sharpe Ratio') && !name.includes('Deflated')) {

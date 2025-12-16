@@ -9,6 +9,11 @@ set -e
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
 
+# Add uv to PATH if it exists
+if [ -d "$HOME/.local/bin" ]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 echo "=================================="
 echo "   ALPHAFORGE MVP8 STARTUP"
 echo "=================================="
@@ -26,9 +31,9 @@ mkdir -p logs
 # Setup virtual environment if needed
 if [ ! -d ".venv" ]; then
     echo -e "${YELLOW}⚠ Virtual environment not found. Creating...${NC}"
-    python3 -m venv .venv
+    uv venv
     source .venv/bin/activate
-    pip install -e ".[dev]"
+    uv pip install -e ".[dev]"
 else
     source .venv/bin/activate
 fi
@@ -45,6 +50,25 @@ if [ ! -d "frontend/node_modules" ]; then
 fi
 
 echo -e "${GREEN}✓ Environment ready${NC}"
+echo ""
+
+# Kill any processes using ports 8000 or 3000
+echo -e "${CYAN}Checking for existing services on ports 8000 and 3000...${NC}"
+BACKEND_OLD_PID=$(lsof -ti :8000 || true)
+FRONTEND_OLD_PID=$(lsof -ti :3000 || true)
+
+if [ ! -z "$BACKEND_OLD_PID" ]; then
+    echo -e "${YELLOW}⚠ Killing old backend process (PID: $BACKEND_OLD_PID)${NC}"
+    kill $BACKEND_OLD_PID 2>/dev/null || true
+    sleep 1
+fi
+
+if [ ! -z "$FRONTEND_OLD_PID" ]; then
+    echo -e "${YELLOW}⚠ Killing old frontend process (PID: $FRONTEND_OLD_PID)${NC}"
+    kill $FRONTEND_OLD_PID 2>/dev/null || true
+    sleep 1
+fi
+
 echo ""
 
 # Function to cleanup background processes on exit

@@ -61,6 +61,16 @@ class Storage:
                 """
             )
 
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pipeline_stats (
+                    key TEXT PRIMARY KEY,
+                    value INTEGER,
+                    updated_at TEXT
+                )
+                """
+            )
+
     def save_validation(self, validation_id: str, data: dict[str, Any]) -> None:
         """Save or update validation result."""
         with sqlite3.connect(self.db_path) as conn:
@@ -194,3 +204,39 @@ class Storage:
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute("SELECT * FROM factory_runs ORDER BY timestamp DESC").fetchall()
         return [json.loads(row[3]) for row in rows]
+
+    def save_pipeline_stats(self, stats: dict[str, int]) -> None:
+        """Save or update pipeline statistics.
+
+        Args:
+            stats: Dictionary of stat keys to integer values
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            for key, value in stats.items():
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO pipeline_stats (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (key, value, datetime.now().isoformat()),
+                )
+
+    def load_pipeline_stats(self) -> dict[str, int]:
+        """Load pipeline statistics from database.
+
+        Returns:
+            Dictionary of stat keys to integer values
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute("SELECT key, value FROM pipeline_stats").fetchall()
+
+        if not rows:
+            # Return default values if no stats exist
+            return {
+                "total_generated": 0,
+                "total_validated": 0,
+                "total_passed": 0,
+                "total_deployed": 0,
+            }
+
+        return {row[0]: row[1] for row in rows}

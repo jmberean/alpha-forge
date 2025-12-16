@@ -5,6 +5,7 @@ Provides REST API endpoints to run validations and retrieve results.
 """
 
 from datetime import datetime
+import os
 import uuid
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -27,10 +28,11 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Enable CORS for frontend
+# Enable CORS for frontend (configurable via environment variable)
+CORS_ORIGINS = os.environ.get("ALPHAFORGE_CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,14 +48,8 @@ discovery_status = {}
 discovery_logs = {}  # Separate storage for live logs
 factory_logs = {}
 
-# Pipeline statistics (accumulated from runs)
-# TODO: Persist stats
-pipeline_stats = {
-    "total_generated": 0,
-    "total_validated": 0,
-    "total_passed": 0,
-    "total_deployed": 0,
-}
+# Pipeline statistics (loaded from and persisted to database)
+pipeline_stats = storage.load_pipeline_stats()
 
 
 # Request/Response Models
@@ -225,7 +221,7 @@ async def run_validation_task(validation_id: str, request: ValidationRequest):
                 "dsr": validation_result.dsr_result.dsr_pvalue
                 if validation_result.dsr_result
                 else 0.0,
-                "pbo": validation_result.pbo_result.pbo if validation_result.pbo_result else None,
+                "prob_loss": validation_result.pbo_result.pbo if validation_result.pbo_result else None,
                 "annual_return": backtest_result.metrics.annualized_return,
                 "max_drawdown": backtest_result.metrics.max_drawdown,
                 "sortino_ratio": backtest_result.metrics.sortino_ratio,
@@ -343,7 +339,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
 
                 backtest = engine.run(strategy, data)
                 dsr_val = result.dsr_result.dsr_pvalue if result.dsr_result else 0.0
-                pbo_val = result.pbo_result.pbo if result.pbo_result else None
+                prob_loss_val = result.pbo_result.pbo if result.pbo_result else None
                 stress_val = result.stress_result.pass_rate if result.stress_result else None
 
                 status = "passed" if result.passed else "failed"
@@ -361,7 +357,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
                         "status": status,
                         "sharpe": backtest.metrics.sharpe_ratio,
                         "dsr": dsr_val,
-                        "pbo": pbo_val,
+                        "prob_loss": prob_loss_val,
                         "stress_pass_rate": stress_val,
                         "annual_return": backtest.metrics.annualized_return,
                         "max_drawdown": backtest.metrics.max_drawdown,
@@ -380,7 +376,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
                     "metrics": {
                         "sharpe_ratio": backtest.metrics.sharpe_ratio,
                         "dsr": dsr_val,
-                        "pbo": pbo_val,
+                        "prob_loss": prob_loss_val,
                         "annual_return": backtest.metrics.annualized_return,
                         "max_drawdown": backtest.metrics.max_drawdown,
                         "sortino_ratio": backtest.metrics.sortino_ratio,
@@ -400,6 +396,7 @@ async def run_factory_task(factory_id: str, request: FactoryRequest):
         pipeline_stats["total_generated"] += len(pool.strategies)
         pipeline_stats["total_validated"] += len(validated_strategies)
         pipeline_stats["total_passed"] += passed_count
+        storage.save_pipeline_stats(pipeline_stats)
 
         log(f"[{datetime.now().strftime('%H:%M:%S')}] ━━━ FACTORY COMPLETE ━━━")
         log(f"[{datetime.now().strftime('%H:%M:%S')}] Generated: {len(pool.strategies)}")
@@ -524,31 +521,84 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
         log(f"Pareto front: {len(result.pareto_front)} strategies")
         log(f"Factor zoo: {len(result.factor_zoo)} validated formulas")
 
+        # Run statistical validation on Pareto front strategies
+        log("")
+        log("Running statistical validation on Pareto front...")
+        pipeline = ValidationPipeline()
+        validated_count = 0
+        passed_count = 0
+
+        # Convert Pareto front to StrategyGenome for validation
+        strategy_genomes = orchestrator.to_strategy_genomes(result.pareto_front)
+
+        # Only validate top strategies to keep reasonable runtime (e.g., top 10)
+        max_validate = min(10, len(strategy_genomes))
+        log(f"Validating top {max_validate} Pareto strategies (n_trials={request.population_size * request.n_generations})...")
+
+        validated_strategies = []
+        for i, strategy in enumerate(strategy_genomes[:max_validate]):
+            try:
+                val_result = pipeline.validate(
+                    strategy=strategy,
+                    data=data,
+                    n_trials=request.population_size * request.n_generations,
+                    run_cpcv=False,  # Skip CPCV for speed (too slow for 10 strategies)
+                    run_spa=False,
+                    run_stress=False,
+                )
+
+                validated_count += 1
+                if val_result.passed:
+                    passed_count += 1
+
+                log(f"  #{i+1}: {'PASSED' if val_result.passed else 'FAILED'} - DSR: {val_result.dsr_result.dsr_pvalue:.4f}")
+
+                validated_strategies.append({
+                    "index": i,
+                    "passed": val_result.passed,
+                    "dsr": val_result.dsr_result.dsr_pvalue if val_result.dsr_result else 0.0,
+                })
+            except Exception as e:
+                log(f"  #{i+1}: Error validating - {str(e)}")
+
+        log(f"✓ Validation complete: {passed_count}/{validated_count} passed DSR screening")
+
         # Convert result to serializable format
         pareto_front = []
-        for ind in result.pareto_front:
+        for i, ind in enumerate(result.pareto_front):
+            # Find validation result for this strategy if available
+            validation_info = None
+            for val in validated_strategies:
+                if val["index"] == i:
+                    validation_info = {
+                        "passed": val["passed"],
+                        "dsr": val["dsr"],
+                    }
+                    break
+
             pareto_front.append(
                 {
-                    "formula": ind.tree.formula,
-                    "size": ind.tree.size,
-                    "depth": ind.tree.depth,
-                    "complexity": ind.tree.complexity_score(),
+                    "formula": ind.genome.tree.formula,
+                    "size": ind.genome.tree.size,
+                    "depth": ind.genome.tree.depth,
+                    "complexity": ind.genome.tree.complexity_score(),
                     "fitness": {
                         "sharpe": ind.fitness.get("sharpe", 0.0),
                         "drawdown": ind.fitness.get("drawdown", 0.0),
                         "turnover": ind.fitness.get("turnover", 0.0),
                         "complexity": ind.fitness.get("complexity", 0.0),
                     },
+                    "validation": validation_info,
                 }
             )
 
         best_by_objective = {}
         for obj_name, ind in result.best_by_objective.items():
             best_by_objective[obj_name] = {
-                "formula": ind.tree.formula,
-                "size": ind.tree.size,
-                "depth": ind.tree.depth,
-                "complexity": ind.tree.complexity_score(),
+                "formula": ind.genome.tree.formula,
+                "size": ind.genome.tree.size,
+                "depth": ind.genome.tree.depth,
+                "complexity": ind.genome.tree.complexity_score(),
                 "fitness": {
                     "sharpe": ind.fitness.get("sharpe", 0.0),
                     "drawdown": ind.fitness.get("drawdown", 0.0),
@@ -561,8 +611,9 @@ async def run_discovery_task(discovery_id: str, request: DiscoveryRequest):
 
         # Update pipeline stats
         pipeline_stats["total_generated"] += request.population_size * request.n_generations
-        pipeline_stats["total_validated"] += len(result.factor_zoo)
-        pipeline_stats["total_passed"] += len(result.factor_zoo)
+        pipeline_stats["total_validated"] += validated_count
+        pipeline_stats["total_passed"] += passed_count
+        storage.save_pipeline_stats(pipeline_stats)
 
         discovery_result = {
             "discovery_id": discovery_id,
@@ -815,8 +866,8 @@ async def get_latest_metrics():
                 "unit": "",
             },
             {
-                "name": "Probability of Backtest Overfitting",
-                "value": metrics.get("pbo", 0),
+                "name": "Probability of Loss",
+                "value": metrics.get("prob_loss", 0),
                 "threshold": "< 0.05",
                 "unit": "",
             },

@@ -99,7 +99,8 @@ class ValidationResult:
             "metrics": {
                 "sharpe": self.backtest_result.metrics.sharpe_ratio,
                 "dsr": self.dsr_result.dsr_pvalue,
-                "pbo": self.pbo_result.pbo if self.pbo_result else None,
+                # NOTE: prob_loss is a single-strategy robustness proxy, NOT true selection-based PBO
+                "prob_loss": self.pbo_result.pbo if self.pbo_result else None,
                 "cpcv_mean_sharpe": self.cpcv_result.mean_sharpe
                 if self.cpcv_result
                 else None,

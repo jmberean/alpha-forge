@@ -274,6 +274,11 @@ class TreeGenerator:
         method: str,
     ) -> Node:
         """Recursively generate a node of the target type."""
+        # IMPORTANT: WINDOW types must always be constant terminals
+        # to prevent invalid expressions like ts_std(close, window=ts_argmax(...))
+        if target_type == DataType.WINDOW:
+            return self._generate_terminal(target_type)
+
         # Force terminal at max depth or probabilistically for "grow"
         at_max = current_depth >= max_depth
         force_terminal = at_max or (

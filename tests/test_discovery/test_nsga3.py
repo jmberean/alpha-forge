@@ -99,6 +99,7 @@ class TestNSGA3:
         sums = ref_points.sum(axis=1)
         assert np.allclose(sums, 1.0)
 
+    @pytest.mark.slow
     def test_nsga3_optimization(self, simple_fitness_functions, generator_func):
         """Test full NSGA-III optimization run."""
         config = NSGA3Config(
@@ -148,6 +149,7 @@ class TestNSGA3:
 
         assert len(result.pareto_front) > 0
 
+    @pytest.mark.slow
     def test_diversity_injection(self, simple_fitness_functions, generator_func):
         """Test diversity injection during evolution."""
         config = NSGA3Config(
@@ -169,6 +171,7 @@ class TestNSGA3:
         assert result.n_generations == 10
         assert len(result.pareto_front) > 0
 
+    @pytest.mark.slow
     def test_pareto_front_quality(self, simple_fitness_functions, generator_func):
         """Test that Pareto front contains non-dominated solutions."""
         config = NSGA3Config(
@@ -221,6 +224,7 @@ class TestNSGA3:
             assert "pareto_front_size" in gen_stats
             assert "fitness" in gen_stats
 
+    @pytest.mark.slow
     def test_convergence(self, simple_fitness_functions, generator_func):
         """Test that optimization shows improvement over generations."""
         config = NSGA3Config(

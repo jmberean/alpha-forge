@@ -242,7 +242,7 @@ class DiscoveryOrchestrator:
             }
             
         tree = genome.tree
-        cache_key = tree.formula
+        cache_key = tree.hash
 
         if cache_key in self._fitness_cache:
             return self._fitness_cache[cache_key]

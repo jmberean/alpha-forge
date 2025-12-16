@@ -5,6 +5,7 @@ Tests the full pipeline without requiring external dependencies.
 
 import sys
 import os
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src'))
@@ -261,6 +262,7 @@ def test_population():
     return True
 
 
+@pytest.mark.slow
 def test_nsga3_basic():
     """Test NSGA-III basic functionality."""
     print("\nTesting NSGA-III...")

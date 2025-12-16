@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 import { listStrategies, Strategy } from '@/lib/api'
 
 interface DisplayStrategy extends Strategy {
-  pbo?: number
+  prob_loss?: number
   returns?: number
 }
 

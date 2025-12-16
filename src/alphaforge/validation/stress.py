@@ -166,15 +166,17 @@ class StressTester:
         ),
     }
 
-    def __init__(self, data_loader: MarketDataLoader | None = None):
+    def __init__(self, data_loader: MarketDataLoader | None = None, seed: int | None = None):
         """
         Initialize stress tester.
 
         Args:
             data_loader: Optional custom data loader
+            seed: Random seed for reproducible stress scenarios
         """
         self.data_loader = data_loader or MarketDataLoader()
         self.backtest_engine = BacktestEngine()
+        self.rng = np.random.RandomState(seed)
 
         # Set up synthetic transforms
         self._setup_synthetic_transforms()
@@ -207,11 +209,11 @@ class StressTester:
 
             # Add gaps to 10% of days
             n_gaps = int(len(df) * 0.10)
-            gap_days = np.random.choice(len(df), n_gaps, replace=False)
+            gap_days = self.rng.choice(len(df), n_gaps, replace=False)
 
             for day in gap_days:
                 if day > 0:
-                    gap = np.random.choice([-0.05, 0.05])  # +/- 5%
+                    gap = self.rng.choice([-0.05, 0.05])  # +/- 5%
                     df_copy.loc[df_copy.index[day]:, "close"] *= (1 + gap)
                     df_copy.loc[df_copy.index[day]:, "high"] *= (1 + gap)
                     df_copy.loc[df_copy.index[day]:, "low"] *= (1 + gap)
@@ -366,6 +368,7 @@ def stress_test_strategy(
     strategy: StrategyGenome,
     symbol: str = "SPY",
     scenarios: list[str] | None = None,
+    seed: int | None = None,
 ) -> StressTestResult:
     """
     Convenience function to stress test a strategy.
@@ -374,13 +377,14 @@ def stress_test_strategy(
         strategy: Strategy to test
         symbol: Symbol to test with
         scenarios: List of scenario names, or None for all
+        seed: Random seed for reproducible stress scenarios
 
     Returns:
         StressTestResult
 
     Example:
-        >>> result = stress_test_strategy(my_strategy)
+        >>> result = stress_test_strategy(my_strategy, seed=42)
         >>> print(result.summary())
     """
-    tester = StressTester()
+    tester = StressTester(seed=seed)
     return tester.test_strategy(strategy, symbol, scenarios)

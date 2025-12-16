@@ -18,7 +18,7 @@ const initialLogs: LogEntry[] = [
   { timestamp: '18:42:47', level: 'info', message: 'Running DSR screen (threshold: 0.95)...' },
   { timestamp: '18:43:02', level: 'success', message: '✓ DSR Screen: 450/10,000 passed (4.5%)' },
   { timestamp: '18:43:02', level: 'info', message: 'Running CPCV validation (12,870 combinations)...' },
-  { timestamp: '18:45:18', level: 'success', message: '✓ CPCV/PBO: 89/450 passed (PBO < 0.05)' },
+  { timestamp: '18:45:18', level: 'success', message: '✓ CPCV/Prob. Loss: 89/450 passed (Prob. Loss < 0.05)' },
   { timestamp: '18:45:18', level: 'info', message: 'Running event-driven backtests with queue models...' },
   { timestamp: '18:47:33', level: 'success', message: '✓ Event-Driven: 23/89 passed (shortfall < 30%)' },
   { timestamp: '18:47:33', level: 'info', message: 'Running Hansen SPA test vs SPY benchmark...' },
@@ -28,7 +28,7 @@ const initialLogs: LogEntry[] = [
   { timestamp: '18:48:12', level: 'success', message: '✓ Stress Tests: 5/6 passed (83%)' },
   { timestamp: '18:48:12', level: 'success', message: '━━━ VALIDATION COMPLETE ━━━' },
   { timestamp: '18:48:12', level: 'success', message: '✓ Strategy: SMA_Cross_Genetic_v47' },
-  { timestamp: '18:48:12', level: 'success', message: '✓ Sharpe: 1.23, DSR: 0.96, PBO: 0.04' },
+  { timestamp: '18:48:12', level: 'success', message: '✓ Sharpe: 1.23, DSR: 0.96, Prob. Loss: 0.04' },
   { timestamp: '18:48:12', level: 'success', message: '✓ Recommendation: DEPLOY WITH APPROVAL' },
 ]
 

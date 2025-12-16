@@ -16,6 +16,7 @@ AlphaForge implements defense-in-depth against the primary failure modes in quan
   - [Python API](#python-api)
 - [Strategy Discovery System](#strategy-discovery-system)
 - [Validation Pipeline](#validation-pipeline)
+- [Limitations & Caveats](#limitations--caveats)
 - [Backtesting Engine](#backtesting-engine)
 - [Technical Indicators](#technical-indicators)
 - [API Reference](#api-reference)
@@ -39,15 +40,15 @@ AlphaForge implements defense-in-depth against the primary failure modes in quan
 
 | Problem | Industry Failure Rate | AlphaForge Solution |
 |---------|----------------------|---------------------|
-| False discovery (overfitting) | 95% of published factors | CPCV + PBO + DSR validation |
+| False discovery (overfitting) | 95% of published factors | CPCV + Prob. of Loss + DSR validation |
 | Lookahead bias | 60-80% of retail algos | Bi-temporal data architecture |
-| Execution gap | 70% fail within 6 months | Event-driven backtesting + impact modeling |
+| Execution gap | 70% fail within 6 months | Simplified execution simulation + impact modeling |
 
 ### Statistical Validation Pipeline
 
 - **Deflated Sharpe Ratio (DSR)**: Multiple testing correction accounting for all strategies tested
 - **Combinatorially Purged Cross-Validation (CPCV)**: Tests 12,870 train/test combinations with temporal embargo
-- **Probability of Backtest Overfitting (PBO)**: Quantifies likelihood strategy is overfit
+- **Probability of Loss (PBO proxy)**: Single-strategy robustness metric (not true selection-based PBO)
 - **Hansen's Superior Predictive Ability (SPA)**: Tests statistical significance vs benchmark
 - **Stress Testing**: 3 historical scenarios + 3 synthetic shocks
 
@@ -399,7 +400,7 @@ mul(rank(ts_mean(close, 50)), neg(ts_std(close, 20)))
 
 | Metric | Minimum (Deploy) | Auto-Accept |
 |--------|------------------|-------------|
-| PBO | < 0.05 | < 0.02 |
+| Prob. of Loss | < 0.05 | < 0.02 |
 | DSR | > 0.95 | > 0.98 |
 | Sharpe | > 1.0 | > 1.5 |
 | Stress Pass Rate | ≥ 80% | ≥ 80% |
@@ -418,6 +419,77 @@ mul(rank(ts_mean(close, 50)), neg(ts_std(close, 20)))
 - Liquidity Drain (5x spreads, 80% less depth)
 
 ---
+
+## Limitations & Caveats
+
+### Important Disclaimers
+
+AlphaForge is a research and educational platform implementing state-of-the-art quantitative finance methodologies. Users should be aware of the following limitations:
+
+#### 1. Probability of Loss Metric
+
+The metric labeled "Probability of Loss" (formerly PBO) is a **single-strategy robustness proxy**, not the true selection-based Probability of Backtest Overfitting (PBO) from Bailey et al. (2014).
+
+- **What it measures**: Fraction of CPCV test folds where the strategy has negative Sharpe ratio
+- **What it doesn't measure**: Selection bias across multiple tested strategies
+- **Why it matters**: True PBO requires comparing in-sample vs out-of-sample performance rankings across a portfolio of strategies
+
+**For true PBO calculation**, you would need to:
+1. Track all strategies ever tested (not just deployed ones)
+2. Maintain in-sample and out-of-sample performance for each
+3. Compute rank correlations across the full tested universe
+
+The current implementation provides a **conservative single-strategy screening metric** that complements DSR (which does account for multiple testing via n_trials).
+
+#### 2. Universe Construction & Survivorship Bias
+
+The current implementation uses **mock universe data** for demonstration purposes:
+
+- **What's included**: Live tickers available via yfinance
+- **What's missing**: Historical constituents that have since been delisted
+- **Impact**: Survivorship bias inflates historical performance (estimated +2-5% annual return bias)
+
+**For production use**, you would need:
+- Historical index constituent lists with add/remove dates
+- Delisted securities data with final prices
+- Merger/acquisition/bankruptcy records
+- Point-in-time universe reconstruction
+
+#### 3. Execution Simulation
+
+The event-driven backtesting engine provides **simplified execution simulation**, not production-grade order routing:
+
+- **What's simulated**: Latency, partial fills, market impact (Almgren-Chriss model)
+- **What's not simulated**: 
+  - Queue position dynamics
+  - Adverse selection
+  - Exchange-specific microstructure
+  - Smart order routing logic
+  - Internalization/dark pools
+  
+**Expected slippage**: The simplified model may underestimate true execution costs by 20-50% depending on strategy frequency and market conditions.
+
+#### 4. Data Quality & Availability
+
+- **Source**: All data from yfinance (Yahoo Finance API wrapper)
+- **Limitations**: 
+  - Corporate actions may be inconsistently adjusted
+  - Intraday data limited to last 60 days
+  - No tick-level order book data
+  - Survivorship bias in long-term historical data
+
+#### 5. Multiple Testing Correction
+
+The DSR (Deflated Sharpe Ratio) correction requires accurate n_trials parameter:
+
+- **Current**: User must manually specify the number of strategies tested
+- **Limitation**: Cannot automatically track all strategies tested across different sessions
+- **Mitigation**: Pipeline stats are persisted to SQLite to accumulate counts across restarts
+
+**Best practice**: Over-estimate n_trials rather than under-estimate to maintain conservative screening.
+
+---
+
 
 ## Backtesting Engine
 
@@ -578,9 +650,9 @@ thresholds = ValidationThresholds(
     # DSR thresholds
     dsr_confidence=0.95,           # Minimum DSR for passing
 
-    # PBO thresholds
-    pbo_deploy=0.05,               # Maximum PBO to deploy
-    pbo_auto_accept=0.02,          # Maximum PBO for auto-accept
+    # Prob. of Loss thresholds
+    pbo_deploy=0.05,               # Maximum Prob. of Loss to deploy
+    pbo_auto_accept=0.02,          # Maximum Prob. of Loss for auto-accept
 
     # Sharpe thresholds
     min_sharpe=1.0,                # Minimum Sharpe for deployment
@@ -644,6 +716,10 @@ pytest tests/test_discovery/test_nsga3.py -v
 
 # Skip slow tests
 pytest -m "not slow"
+
+# Note: Slow tests include CPCV validation (12,870 combinations), 
+# NSGA-III evolution (multiple generations), and stress testing.
+# For rapid iteration during development, use -m "not slow"
 
 # Run integration tests only
 pytest -m integration

@@ -31,7 +31,7 @@ export interface ValidationResult {
   metrics: {
     sharpe_ratio: number
     dsr: number
-    pbo?: number
+    prob_loss?: number
     annual_return: number
     max_drawdown: number
     sortino_ratio: number

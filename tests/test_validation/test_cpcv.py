@@ -3,6 +3,7 @@
 from math import factorial
 
 import numpy as np
+import pytest
 
 from alphaforge.validation.cpcv import (
     CombinatorialPurgedCV,
@@ -43,6 +44,7 @@ class TestCombinatorialPurgedCV:
         assert info["n_combinations"] == 70
         assert len(info["splits"]) == 8
 
+    @pytest.mark.slow
     def test_validate_returns_result(self, spy_df):
         """Test that validate returns CPCVResult."""
 
@@ -58,6 +60,7 @@ class TestCombinatorialPurgedCV:
         assert result.test_splits == 2
         assert len(result.sharpe_distribution) <= 10
 
+    @pytest.mark.slow
     def test_pbo_calculation(self, spy_df):
         """Test PBO is calculated correctly."""
 
@@ -72,6 +75,7 @@ class TestCombinatorialPurgedCV:
         # PBO should be approximately 0.5 for this dummy strategy
         assert 0.2 < result.pbo < 0.8
 
+    @pytest.mark.slow
     def test_positive_sharpe_low_pbo(self, spy_df):
         """Test that consistently positive Sharpe has low PBO."""
 
@@ -86,6 +90,7 @@ class TestCombinatorialPurgedCV:
         assert result.pbo == 0.0  # All positive = 0% negative
         assert result.passed
 
+    @pytest.mark.slow
     def test_negative_sharpe_high_pbo(self, spy_df):
         """Test that consistently negative Sharpe has high PBO."""
 
@@ -116,6 +121,7 @@ class TestCombinatorialPurgedCV:
         # Split 3 has test neighbor at 2, so start is purged
         assert len(train_data) < sum(len(splits[i]) for i in [0, 3])
 
+    @pytest.mark.slow
     def test_convenience_function(self, spy_df):
         """Test the convenience function."""
 
